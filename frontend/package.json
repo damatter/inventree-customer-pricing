@@ -1,0 +1,31 @@
+{
+  "name": "inventree-customer-pricing-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b && vite build --emptyOutDir",
+    "lint": "npx @biomejs/biome check ./src",
+    "lint:fix": "npx @biomejs/biome check ./src --write"
+  },
+  "dependencies": {
+    "@mantine/core": ">=9.2.1",
+    "@mantine/hooks": ">=9.2.1",
+    "@mantine/notifications": ">=9.2.1",
+    "react": ">=19.2.4",
+    "react-dom": ">=19.2.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.0.0",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "~5.6.2",
+    "vite": "^6.4.2",
+    "vite-plugin-externals": "^0.6.2"
+  },
+  "overrides": {
+    "glob": ">=13.0.0",
+    "vite": "^6.4.2"
+  }
+}

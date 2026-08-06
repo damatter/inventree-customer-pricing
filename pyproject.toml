@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inventree-customer-pricing"
+description = "Customer-specific pricing and native pricing synchronization for InvenTree"
+dynamic = ["version"]
+authors = [{ name = "Matt Dick" }]
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+keywords = ["inventree", "plugin", "pricing", "customer-pricing"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Framework :: InvenTree",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/damatter/inventree-customer-pricing"
+Issues = "https://github.com/damatter/inventree-customer-pricing/issues"
+
+[project.entry-points."inventree_plugins"]
+CustomerPricingPlugin = "inventree_customer_pricing.core:CustomerPricingPlugin"
+
+[tool.setuptools.packages.find]
+where = [""]
+include = ["inventree_customer_pricing*"]
+exclude = ["tests*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "inventree_customer_pricing.PLUGIN_VERSION" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = ["inventree_customer_pricing/migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
