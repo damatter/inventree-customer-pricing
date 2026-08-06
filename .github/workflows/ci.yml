@@ -18,7 +18,7 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Test pricing logic
-        run: pytest
+        run: python -m pytest
       - name: Build package
         run: python -m build
       - name: Inspect package
