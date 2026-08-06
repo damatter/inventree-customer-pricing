@@ -1,10 +1,8 @@
 """InvenTree plugin entry point for customer-specific pricing."""
 
 from django.utils.translation import gettext_lazy as _
-from part.models import Part
 from plugin import InvenTreePlugin
 from plugin.mixins import AppMixin, UrlsMixin, UserInterfaceMixin
-from users.permissions import check_user_role
 
 from . import PLUGIN_VERSION
 
@@ -35,6 +33,11 @@ class CustomerPricingPlugin(AppMixin, UrlsMixin, UserInterfaceMixin, InvenTreePl
     def get_ui_panels(self, request, context: dict, **kwargs):
         """Add the pricing workspace as a native part-detail tab."""
 
+        # Keep model imports out of the package entry point. InvenTree discovers
+        # plugin classes while the Django app registry is still being prepared.
+        from part.models import Part
+        from users.permissions import check_user_role
+
         if context.get("target_model") != "part":
             return []
 
@@ -56,9 +59,7 @@ class CustomerPricingPlugin(AppMixin, UrlsMixin, UserInterfaceMixin, InvenTreePl
                 "title": _("Customer Pricing"),
                 "description": _("Purchase, sale, and customer-specific price breaks"),
                 "icon": "ti:currency-dollar:outline",
-                "source": self.plugin_static_file(
-                    "Panel.js:RenderCustomerPricingPluginPanel"
-                ),
+                "source": self.plugin_static_file("Panel.js:RenderCustomerPricingPluginPanel"),
                 "context": {
                     "part_id": part.pk,
                     "part_name": part.name,

@@ -1,53 +1,65 @@
 """URL routes for the customer pricing plugin API."""
 
 from django.urls import path
+from django.views.decorators.csrf import csrf_exempt
 
-from . import views
+
+def lazy_api_view(view_name):
+    """Resolve an API view only after InvenTree has registered the plugin app."""
+
+    @csrf_exempt
+    def dispatch(request, *args, **kwargs):
+        from . import views
+
+        return getattr(views, view_name).as_view()(request, *args, **kwargs)
+
+    return dispatch
+
 
 app_name = "inventree_customer_pricing"
 
 urlpatterns = [
-    path("part/<int:part_id>/", views.PricingWorkspaceView.as_view(), name="workspace"),
-    path("part/<int:part_id>/policy/", views.PricingPolicyView.as_view(), name="policy"),
-    path("part/<int:part_id>/sync/", views.PricingSyncView.as_view(), name="sync"),
+    path("part/<int:part_id>/", lazy_api_view("PricingWorkspaceView"), name="workspace"),
+    path("part/<int:part_id>/policy/", lazy_api_view("PricingPolicyView"), name="policy"),
+    path("part/<int:part_id>/sync/", lazy_api_view("PricingSyncView"), name="sync"),
     path(
         "part/<int:part_id>/customer-lists/",
-        views.CustomerPriceListCollectionView.as_view(),
+        lazy_api_view("CustomerPriceListCollectionView"),
         name="customer-list-create",
     ),
     path(
         "part/<int:part_id>/customer-lists/<int:pk>/",
-        views.CustomerPriceListDetailView.as_view(),
+        lazy_api_view("CustomerPriceListDetailView"),
         name="customer-list-detail",
     ),
     path(
         "part/<int:part_id>/customer-lists/<int:price_list_id>/breaks/",
-        views.CustomerPriceBreakCollectionView.as_view(),
+        lazy_api_view("CustomerPriceBreakCollectionView"),
         name="customer-break-create",
     ),
     path(
         "part/<int:part_id>/customer-breaks/<int:pk>/",
-        views.CustomerPriceBreakDetailView.as_view(),
+        lazy_api_view("CustomerPriceBreakDetailView"),
         name="customer-break-detail",
     ),
     path(
         "part/<int:part_id>/sale-breaks/",
-        views.NativeSaleBreakCollectionView.as_view(),
+        lazy_api_view("NativeSaleBreakCollectionView"),
         name="sale-break-create",
     ),
     path(
         "part/<int:part_id>/sale-breaks/<int:pk>/",
-        views.NativeSaleBreakDetailView.as_view(),
+        lazy_api_view("NativeSaleBreakDetailView"),
         name="sale-break-detail",
     ),
     path(
         "part/<int:part_id>/supplier-parts/<int:supplier_part_id>/breaks/",
-        views.SupplierBreakCollectionView.as_view(),
+        lazy_api_view("SupplierBreakCollectionView"),
         name="supplier-break-create",
     ),
     path(
         "part/<int:part_id>/supplier-breaks/<int:pk>/",
-        views.SupplierBreakDetailView.as_view(),
+        lazy_api_view("SupplierBreakDetailView"),
         name="supplier-break-detail",
     ),
 ]
