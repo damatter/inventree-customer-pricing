@@ -9,7 +9,8 @@ customer-specific price breaks from one tab on the part detail page.
 - A separate price list for each customer, with independent quantity breaks,
   currency, notes, and active / paused state.
 - Automatic synchronization to InvenTree's native sale-price breaks.
-- Native supplier purchase-price editing without duplicating supplier data.
+- Simple vendor purchasing with optional SKU, order link, lead time and quantity breaks.
+- No native supplier, manufacturer or purchase-order setup required.
 - Manual native sale-price editing when automatic synchronization is disabled.
 - InvenTree sales-order and purchase-order role enforcement for every API action.
 - Atomic synchronization and visible error reporting for missing currency rates.
@@ -48,13 +49,13 @@ reviewed before allowing a future InvenTree 1.4 release.
 In **Admin Center → Plugins → Install Plugin**, use:
 
 - Package name: `inventree-customer-pricing`
-- Source URL: `git+https://github.com/damatter/inventree-customer-pricing.git@0.1.1`
+- Source URL: `git+https://github.com/damatter/inventree-customer-pricing.git@0.2.0`
 - Version: leave blank (the release is pinned in the source URL)
 
 The equivalent `plugins.txt` entry is:
 
 ```text
-inventree-customer-pricing @ git+https://github.com/damatter/inventree-customer-pricing.git@0.1.1
+inventree-customer-pricing @ git+https://github.com/damatter/inventree-customer-pricing.git@0.2.0
 ```
 
 Then:
@@ -75,18 +76,24 @@ Open a part and select **Customer Pricing**.
 - **Customer pricing** creates customer schedules and quantity breaks.
 - **Sale pricing** controls the native synchronization currency and shows the
   generated InvenTree sale-price rows.
-- **Purchase pricing** reads and edits price breaks on existing native supplier parts.
+- **Purchase pricing** stores lightweight vendor options and quantity breaks directly against the part.
 
 When automatic synchronization is on, the native sale-price rows are read-only in
 this plugin. Disable synchronization to manage those rows manually. Re-enabling it
 immediately replaces them with the highest-price customer envelope.
 
+## Data storage
+
+Customer and vendor schedules are stored in plugin-owned tables in the same InvenTree
+database. Sale-price synchronization writes only the highest customer-price envelope
+to InvenTree's native sale-price rows. Simple vendor data does not create Supplier,
+Manufacturer, Supplier Part, SKU, Purchase Order, or StockItem records.
 ## Permissions
 
 - Sales-order `view` is required to see customer and sale pricing.
 - Sales-order `change` is required to edit customer pricing, native sale pricing,
   or synchronization settings.
-- Purchase-order `view` / `change` controls the supplier purchase-pricing section.
+- Purchase-order `view` / `change` controls the simple purchasing section.
 - Superusers retain full access.
 
 ## Development

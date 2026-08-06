@@ -4,7 +4,13 @@ from company.models import Company
 from moneyed import CURRENCIES
 from rest_framework import serializers
 
-from .models import CustomerPriceBreak, CustomerPriceList, PartPricingPolicy
+from .models import (
+    CustomerPriceBreak,
+    CustomerPriceList,
+    PartPricingPolicy,
+    VendorPriceBreak,
+    VendorPriceList,
+)
 
 
 class CurrencyField(serializers.CharField):
@@ -94,3 +100,51 @@ class PartPricingPolicySerializer(serializers.ModelSerializer):
         read_only_fields = ["last_synced", "last_sync_error"]
 
     sync_currency = CurrencyField(required=False, allow_blank=True)
+
+
+class VendorPriceBreakSerializer(serializers.ModelSerializer):
+    """Serialize a lightweight vendor quantity tier."""
+
+    class Meta:
+        model = VendorPriceBreak
+        fields = ["pk", "price_list", "quantity", "price", "created", "updated"]
+        read_only_fields = ["pk", "price_list", "created", "updated"]
+
+
+class VendorPriceListSerializer(serializers.ModelSerializer):
+    """Serialize a lightweight vendor schedule and its quantity tiers."""
+
+    class Meta:
+        model = VendorPriceList
+        fields = [
+            "pk",
+            "part",
+            "vendor_name",
+            "vendor_sku",
+            "currency",
+            "purchase_url",
+            "lead_time_days",
+            "active",
+            "preferred",
+            "notes",
+            "breaks",
+            "created",
+            "updated",
+        ]
+        read_only_fields = ["pk", "part", "breaks", "created", "updated"]
+
+    currency = CurrencyField()
+    breaks = VendorPriceBreakSerializer(many=True, read_only=True)
+
+    def _enforce_single_preferred(self, instance):
+        if instance.preferred:
+            VendorPriceList.objects.filter(part=instance.part).exclude(pk=instance.pk).update(
+                preferred=False
+            )
+        return instance
+
+    def create(self, validated_data):
+        return self._enforce_single_preferred(super().create(validated_data))
+
+    def update(self, instance, validated_data):
+        return self._enforce_single_preferred(super().update(instance, validated_data))

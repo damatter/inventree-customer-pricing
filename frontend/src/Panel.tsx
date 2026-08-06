@@ -19,6 +19,7 @@ import {
   Tabs,
   Text,
   Textarea,
+  TextInput,
   Title
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -63,14 +64,22 @@ type CustomerPriceList = {
   updated: string;
 };
 
-type SupplierPart = {
+type VendorPriceBreak = NativeBreak & {
+  price_list: number;
+};
+
+type VendorPriceList = {
   pk: number;
-  supplier: number;
-  supplier_name: string;
-  sku: string;
+  part: number;
+  vendor_name: string;
+  vendor_sku: string;
+  currency: string;
+  purchase_url: string;
+  lead_time_days: number | null;
   active: boolean;
-  primary: boolean;
-  breaks: NativeBreak[];
+  preferred: boolean;
+  notes: string;
+  breaks: VendorPriceBreak[];
 };
 
 type WorkspaceData = {
@@ -97,7 +106,7 @@ type WorkspaceData = {
   customer_lists: CustomerPriceList[];
   customers: { pk: number; name: string; currency: string }[];
   native_sale_breaks: NativeBreak[];
-  supplier_parts: SupplierPart[];
+  vendor_lists: VendorPriceList[];
   currencies: string[];
 };
 
@@ -106,6 +115,18 @@ type ListEditorState = {
   customer: string | null;
   currency: string | null;
   active: boolean;
+  notes: string;
+};
+
+type VendorEditorState = {
+  record?: VendorPriceList;
+  vendorName: string;
+  vendorSku: string;
+  currency: string | null;
+  purchaseUrl: string;
+  leadTimeDays: string | number;
+  active: boolean;
+  preferred: boolean;
   notes: string;
 };
 
@@ -265,6 +286,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [listEditor, setListEditor] = useState<ListEditorState | null>(null);
+  const [vendorEditor, setVendorEditor] = useState<VendorEditorState | null>(null);
   const [breakEditor, setBreakEditor] = useState<BreakEditorState | null>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
 
@@ -387,6 +409,75 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
     setListEditor(null);
   };
 
+  const openNewVendor = () => {
+    setVendorEditor({
+      vendorName: '',
+      vendorSku: '',
+      currency: data?.policy.resolved_currency ?? 'USD',
+      purchaseUrl: '',
+      leadTimeDays: '',
+      active: true,
+      preferred: (data?.vendor_lists.length ?? 0) === 0,
+      notes: ''
+    });
+  };
+
+  const openEditVendor = (record: VendorPriceList) => {
+    setVendorEditor({
+      record,
+      vendorName: record.vendor_name,
+      vendorSku: record.vendor_sku,
+      currency: record.currency,
+      purchaseUrl: record.purchase_url,
+      leadTimeDays: record.lead_time_days ?? '',
+      active: record.active,
+      preferred: record.preferred,
+      notes: record.notes
+    });
+  };
+
+  const saveVendor = async () => {
+    if (!vendorEditor?.vendorName.trim() || !vendorEditor.currency) {
+      return;
+    }
+
+    const payload = {
+      vendor_name: vendorEditor.vendorName.trim(),
+      vendor_sku: vendorEditor.vendorSku.trim(),
+      currency: vendorEditor.currency,
+      purchase_url: vendorEditor.purchaseUrl.trim(),
+      lead_time_days: vendorEditor.leadTimeDays === '' ? null : vendorEditor.leadTimeDays,
+      active: vendorEditor.active,
+      preferred: vendorEditor.preferred,
+      notes: vendorEditor.notes
+    };
+    const url = vendorEditor.record
+      ? `${apiBase}/vendor-lists/${vendorEditor.record.pk}/`
+      : `${apiBase}/vendor-lists/`;
+
+    await request(
+      vendorEditor.record ? 'patch' : 'post',
+      url,
+      payload,
+      vendorEditor.record ? 'Vendor pricing saved.' : 'Vendor pricing created.'
+    );
+    setVendorEditor(null);
+  };
+
+  const askDeleteVendor = (record: VendorPriceList) => {
+    setConfirmation({
+      title: 'Delete vendor pricing?',
+      message: `This removes ${record.vendor_name} and every purchase-price break for this part.`,
+      action: async () => {
+        await request(
+          'delete',
+          `${apiBase}/vendor-lists/${record.pk}/`,
+          undefined,
+          'Vendor pricing deleted.'
+        );
+      }
+    });
+  };
   const openBreakEditor = (
     kind: BreakKind,
     ownerId: number | undefined,
@@ -426,9 +517,8 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
       payload = { ...basePayload, currency: breakEditor.currency };
     } else {
       url = breakEditor.record
-        ? `${apiBase}/supplier-breaks/${breakEditor.record.pk}/`
-        : `${apiBase}/supplier-parts/${breakEditor.ownerId}/breaks/`;
-      payload = { ...basePayload, currency: breakEditor.currency };
+        ? `${apiBase}/vendor-breaks/${breakEditor.record.pk}/`
+        : `${apiBase}/vendor-lists/${breakEditor.ownerId}/breaks/`;
     }
 
     await request(
@@ -457,7 +547,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
 
   const askDeleteBreak = (kind: BreakKind, record: NativeBreak | CustomerBreak) => {
     const segment =
-      kind === 'customer' ? 'customer-breaks' : kind === 'sale' ? 'sale-breaks' : 'supplier-breaks';
+      kind === 'customer' ? 'customer-breaks' : kind === 'sale' ? 'sale-breaks' : 'vendor-breaks';
     setConfirmation({
       title: 'Delete price break?',
       message: `The quantity ${formatQuantity(record.quantity)} price break will be removed.`,
@@ -757,59 +847,96 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
         {data.permissions.view_purchase && (
           <Tabs.Panel value="purchase" pt="lg">
             <Stack gap="md">
-              <Stack gap={2}>
-                <Text fw={700}>Native supplier pricing</Text>
-                <Text size="sm" c="dimmed">
-                  These price breaks are stored directly on InvenTree supplier parts.
-                </Text>
-              </Stack>
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={2}>
+                  <Text fw={700}>Simple purchasing</Text>
+                  <Text size="sm" c="dimmed">
+                    Track vendor options and price breaks without creating suppliers, SKUs or
+                    purchase orders.
+                  </Text>
+                </Stack>
+                {data.permissions.change_purchase && (
+                  <Button onClick={openNewVendor}>Add vendor pricing</Button>
+                )}
+              </Group>
 
-              {data.supplier_parts.length === 0 ? (
+              {data.vendor_lists.length === 0 ? (
                 <EmptyState
-                  title="No supplier parts found"
-                  message="Add a supplier part from the Suppliers tab before entering purchase price breaks."
+                  title="No vendor pricing yet"
+                  message="Add a vendor name and its quantity prices. Native supplier setup is not required."
                 />
               ) : (
-                data.supplier_parts.map((supplierPart) => (
-                  <Card key={supplierPart.pk} withBorder radius="md" padding="lg">
+                data.vendor_lists.map((vendor) => (
+                  <Card key={vendor.pk} withBorder radius="md" padding="lg">
                     <Stack gap="md">
                       <Group justify="space-between" align="flex-start">
-                        <Stack gap={1}>
+                        <Stack gap={2}>
                           <Group gap="xs">
-                            <Text fw={750}>{supplierPart.supplier_name}</Text>
-                            {supplierPart.primary && <Badge variant="light">Primary</Badge>}
-                            {!supplierPart.active && <Badge color="gray">Inactive</Badge>}
+                            <Text fw={750}>{vendor.vendor_name}</Text>
+                            {vendor.preferred && <Badge variant="light">Preferred</Badge>}
+                            {!vendor.active && <Badge color="gray">Paused</Badge>}
+                            <Badge variant="outline">{vendor.currency}</Badge>
                           </Group>
-                          <Text size="sm" c="dimmed">
-                            SKU {supplierPart.sku}
-                          </Text>
+                          {vendor.vendor_sku && (
+                            <Text size="sm" c="dimmed">
+                              Vendor SKU {vendor.vendor_sku}
+                            </Text>
+                          )}
+                          {vendor.lead_time_days !== null && (
+                            <Text size="sm" c="dimmed">
+                              Lead time {vendor.lead_time_days} days
+                            </Text>
+                          )}
+                          {vendor.purchase_url && (
+                            <Text size="xs" c="dimmed">
+                              {vendor.purchase_url}
+                            </Text>
+                          )}
+                          {vendor.notes && (
+                            <Text size="sm" c="dimmed">
+                              {vendor.notes}
+                            </Text>
+                          )}
                         </Stack>
                         {data.permissions.change_purchase && (
-                          <Button
-                            size="xs"
-                            variant="light"
-                            onClick={() =>
-                              openBreakEditor(
-                                'purchase',
-                                supplierPart.pk,
-                                supplierPart.breaks[0]?.currency || data.policy.resolved_currency
-                              )
-                            }
-                          >
-                            Add purchase break
-                          </Button>
+                          <Group gap="xs">
+                            <Button
+                              size="xs"
+                              variant="default"
+                              onClick={() => openEditVendor(vendor)}
+                            >
+                              Edit vendor
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="default"
+                              color="red"
+                              onClick={() => askDeleteVendor(vendor)}
+                            >
+                              Delete
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="light"
+                              onClick={() =>
+                                openBreakEditor('purchase', vendor.pk, vendor.currency)
+                              }
+                            >
+                              Add price break
+                            </Button>
+                          </Group>
                         )}
                       </Group>
 
                       <Divider />
 
                       <BreakTable
-                        records={supplierPart.breaks}
-                        currency={supplierPart.breaks[0]?.currency || data.policy.resolved_currency}
+                        records={vendor.breaks}
+                        currency={vendor.currency}
                         locale={context.locale}
                         editable={data.permissions.change_purchase}
                         onEdit={(record) =>
-                          openBreakEditor('purchase', supplierPart.pk, record.currency, record)
+                          openBreakEditor('purchase', vendor.pk, vendor.currency, record)
                         }
                         onDelete={(record) => askDeleteBreak('purchase', record)}
                       />
@@ -889,6 +1016,92 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
       </Modal>
 
       <Modal
+        opened={vendorEditor !== null}
+        onClose={() => setVendorEditor(null)}
+        title={vendorEditor?.record ? 'Edit vendor pricing' : 'Add vendor pricing'}
+        centered
+      >
+        {vendorEditor && (
+          <Stack>
+            <TextInput
+              label="Vendor name"
+              placeholder="Where do you buy this part?"
+              required
+              value={vendorEditor.vendorName}
+              onChange={(event) =>
+                setVendorEditor({ ...vendorEditor, vendorName: event.currentTarget.value })
+              }
+            />
+            <TextInput
+              label="Vendor SKU"
+              description="Optional"
+              value={vendorEditor.vendorSku}
+              onChange={(event) =>
+                setVendorEditor({ ...vendorEditor, vendorSku: event.currentTarget.value })
+              }
+            />
+            <Select
+              label="Currency"
+              searchable
+              required
+              data={data.currencies}
+              value={vendorEditor.currency}
+              onChange={(currency) => setVendorEditor({ ...vendorEditor, currency })}
+            />
+            <TextInput
+              label="Purchase link"
+              description="Optional product or ordering URL"
+              value={vendorEditor.purchaseUrl}
+              onChange={(event) =>
+                setVendorEditor({ ...vendorEditor, purchaseUrl: event.currentTarget.value })
+              }
+            />
+            <NumberInput
+              label="Lead time in days"
+              min={0}
+              allowDecimal={false}
+              value={vendorEditor.leadTimeDays}
+              onChange={(leadTimeDays) => setVendorEditor({ ...vendorEditor, leadTimeDays })}
+            />
+            <Checkbox
+              label="Preferred vendor"
+              description="Making this preferred clears the preferred flag from other vendors for this part."
+              checked={vendorEditor.preferred}
+              onChange={(event) =>
+                setVendorEditor({ ...vendorEditor, preferred: event.currentTarget.checked })
+              }
+            />
+            <Checkbox
+              label="Active vendor option"
+              checked={vendorEditor.active}
+              onChange={(event) =>
+                setVendorEditor({ ...vendorEditor, active: event.currentTarget.checked })
+              }
+            />
+            <Textarea
+              label="Notes"
+              placeholder="Ordering details, contact or reference"
+              minRows={3}
+              value={vendorEditor.notes}
+              onChange={(event) =>
+                setVendorEditor({ ...vendorEditor, notes: event.currentTarget.value })
+              }
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setVendorEditor(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={saveVendor}
+                disabled={!vendorEditor.vendorName.trim() || !vendorEditor.currency}
+              >
+                Save vendor pricing
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
+      <Modal
         opened={breakEditor !== null}
         onClose={() => setBreakEditor(null)}
         title={breakEditor?.record ? 'Edit price break' : 'Add price break'}
@@ -918,12 +1131,17 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
               required
               data={data.currencies}
               value={breakEditor.currency}
-              disabled={breakEditor.kind === 'customer'}
+              disabled={breakEditor.kind === 'customer' || breakEditor.kind === 'purchase'}
               onChange={(currency) => setBreakEditor({ ...breakEditor, currency })}
             />
             {breakEditor.kind === 'customer' && (
               <Text size="xs" c="dimmed">
                 Customer tiers use the currency configured on their price list.
+              </Text>
+            )}{' '}
+            {breakEditor.kind === 'purchase' && (
+              <Text size="xs" c="dimmed">
+                Purchase tiers use the currency configured on their vendor price list.
               </Text>
             )}
             <Group justify="flex-end">

@@ -2,7 +2,13 @@
 
 from django.contrib import admin
 
-from .models import CustomerPriceBreak, CustomerPriceList, PartPricingPolicy
+from .models import (
+    CustomerPriceBreak,
+    CustomerPriceList,
+    PartPricingPolicy,
+    VendorPriceBreak,
+    VendorPriceList,
+)
 
 
 class CustomerPriceBreakInline(admin.TabularInline):
@@ -30,3 +36,20 @@ class PartPricingPolicyAdmin(admin.ModelAdmin):
     list_filter = ("sync_native_sale", "sync_currency")
     search_fields = ("part__name", "part__IPN")
     readonly_fields = ("last_synced", "last_sync_error")
+
+
+class VendorPriceBreakInline(admin.TabularInline):
+    """Edit simple vendor breaks inline with their price list."""
+
+    model = VendorPriceBreak
+    extra = 0
+
+
+@admin.register(VendorPriceList)
+class VendorPriceListAdmin(admin.ModelAdmin):
+    """Simple vendor price-list administration."""
+
+    list_display = ("part", "vendor_name", "vendor_sku", "currency", "preferred", "active")
+    list_filter = ("preferred", "active", "currency")
+    search_fields = ("part__name", "part__IPN", "vendor_name", "vendor_sku")
+    inlines = (VendorPriceBreakInline,)

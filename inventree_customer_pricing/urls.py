@@ -53,13 +53,23 @@ urlpatterns = [
         name="sale-break-detail",
     ),
     path(
-        "part/<int:part_id>/supplier-parts/<int:supplier_part_id>/breaks/",
-        lazy_api_view("SupplierBreakCollectionView"),
-        name="supplier-break-create",
+        "part/<int:part_id>/vendor-lists/",
+        lazy_api_view("VendorPriceListCollectionView"),
+        name="vendor-list-create",
     ),
     path(
-        "part/<int:part_id>/supplier-breaks/<int:pk>/",
-        lazy_api_view("SupplierBreakDetailView"),
-        name="supplier-break-detail",
+        "part/<int:part_id>/vendor-lists/<int:pk>/",
+        lazy_api_view("VendorPriceListDetailView"),
+        name="vendor-list-detail",
+    ),
+    path(
+        "part/<int:part_id>/vendor-lists/<int:price_list_id>/breaks/",
+        lazy_api_view("VendorPriceBreakCollectionView"),
+        name="vendor-break-create",
+    ),
+    path(
+        "part/<int:part_id>/vendor-breaks/<int:pk>/",
+        lazy_api_view("VendorPriceBreakDetailView"),
+        name="vendor-break-detail",
     ),
 ]

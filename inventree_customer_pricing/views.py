@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from company.models import Company, SupplierPart, SupplierPriceBreak
+from company.models import Company
 from django.db import IntegrityError
 from django.shortcuts import get_object_or_404
 from djmoney.money import Money
@@ -14,7 +14,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from users.permissions import check_user_role
 
-from .models import CustomerPriceBreak, CustomerPriceList, PartPricingPolicy
+from .models import (
+    CustomerPriceBreak,
+    CustomerPriceList,
+    PartPricingPolicy,
+    VendorPriceBreak,
+    VendorPriceList,
+)
 from .native_sync import (
     CustomerPricingSyncError,
     resolved_sync_currency,
@@ -25,6 +31,8 @@ from .serializers import (
     CustomerPriceBreakSerializer,
     CustomerPriceListSerializer,
     PartPricingPolicySerializer,
+    VendorPriceBreakSerializer,
+    VendorPriceListSerializer,
 )
 
 
@@ -104,9 +112,11 @@ class PricingWorkspaceView(PricingAPIView):
         native_sale_breaks = []
 
         if can_view_sales:
-            customer_queryset = CustomerPriceList.objects.filter(part=part).select_related(
-                "customer"
-            ).prefetch_related("breaks")
+            customer_queryset = (
+                CustomerPriceList.objects.filter(part=part)
+                .select_related("customer")
+                .prefetch_related("breaks")
+            )
             customer_lists = CustomerPriceListSerializer(customer_queryset, many=True).data
             customer_options = [
                 {
@@ -120,56 +130,37 @@ class PricingWorkspaceView(PricingAPIView):
             ]
             native_sale_breaks = [
                 _money_break(price_break)
-                for price_break in PartSellPriceBreak.objects.filter(part=part).order_by(
-                    "quantity"
-                )
+                for price_break in PartSellPriceBreak.objects.filter(part=part).order_by("quantity")
             ]
 
-        supplier_parts = []
+        vendor_lists = []
         if can_view_purchase:
-            supplier_queryset = (
-                SupplierPart.objects.filter(part=part)
-                .select_related("supplier")
-                .prefetch_related("pricebreaks")
-                .order_by("supplier__name", "SKU")
-            )
-            supplier_parts = [
-                {
-                    "pk": supplier_part.pk,
-                    "supplier": supplier_part.supplier.pk,
-                    "supplier_name": supplier_part.supplier.name,
-                    "sku": supplier_part.SKU,
-                    "active": supplier_part.active,
-                    "primary": supplier_part.primary,
-                    "breaks": [
-                        _money_break(price_break)
-                        for price_break in supplier_part.pricebreaks.all()
-                    ],
-                }
-                for supplier_part in supplier_queryset
-            ]
+            vendor_queryset = VendorPriceList.objects.filter(part=part).prefetch_related("breaks")
+            vendor_lists = VendorPriceListSerializer(vendor_queryset, many=True).data
 
-        return Response({
-            "part": {
-                "pk": part.pk,
-                "name": part.name,
-                "ipn": part.IPN,
-                "salable": part.salable,
-                "purchaseable": part.purchaseable,
-            },
-            "permissions": {
-                "view_sales": can_view_sales,
-                "change_sales": can_change_sales,
-                "view_purchase": can_view_purchase,
-                "change_purchase": can_change_purchase,
-            },
-            "policy": policy_data,
-            "customer_lists": customer_lists,
-            "customers": customer_options,
-            "native_sale_breaks": native_sale_breaks,
-            "supplier_parts": supplier_parts,
-            "currencies": sorted(CURRENCIES.keys()),
-        })
+        return Response(
+            {
+                "part": {
+                    "pk": part.pk,
+                    "name": part.name,
+                    "ipn": part.IPN,
+                    "salable": part.salable,
+                    "purchaseable": part.purchaseable,
+                },
+                "permissions": {
+                    "view_sales": can_view_sales,
+                    "change_sales": can_change_sales,
+                    "view_purchase": can_view_purchase,
+                    "change_purchase": can_change_purchase,
+                },
+                "policy": policy_data,
+                "customer_lists": customer_lists,
+                "customers": customer_options,
+                "native_sale_breaks": native_sale_breaks,
+                "vendor_lists": vendor_lists,
+                "currencies": sorted(CURRENCIES.keys()),
+            }
+        )
 
 
 class PricingPolicyView(PricingAPIView):
@@ -251,9 +242,7 @@ class CustomerPriceBreakCollectionView(PricingAPIView):
 
     def post(self, request, part_id: int, price_list_id: int):
         _require_role(request, "sales_order", "change")
-        price_list = get_object_or_404(
-            CustomerPriceList, pk=price_list_id, part_id=part_id
-        )
+        price_list = get_object_or_404(CustomerPriceList, pk=price_list_id, part_id=part_id)
         serializer = CustomerPriceBreakSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -279,9 +268,7 @@ class CustomerPriceBreakDetailView(PricingAPIView):
     def patch(self, request, part_id: int, pk: int):
         _require_role(request, "sales_order", "change")
         price_break = self._instance(part_id, pk)
-        serializer = CustomerPriceBreakSerializer(
-            price_break, data=request.data, partial=True
-        )
+        serializer = CustomerPriceBreakSerializer(price_break, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
 
         try:
@@ -302,9 +289,9 @@ class CustomerPriceBreakDetailView(PricingAPIView):
 def _assert_native_sale_editable(part: Part) -> None:
     policy = PartPricingPolicy.objects.filter(part=part).first()
     if policy is None or policy.sync_native_sale:
-        raise serializers.ValidationError({
-            "sync": "Disable automatic native sale synchronization before editing sale breaks."
-        })
+        raise serializers.ValidationError(
+            {"sync": "Disable automatic native sale synchronization before editing sale breaks."}
+        )
 
 
 class NativeSaleBreakCollectionView(PricingAPIView):
@@ -375,63 +362,80 @@ class NativeSaleBreakDetailView(PricingAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class SupplierBreakCollectionView(PricingAPIView):
-    """Create a native supplier price break from the pricing workspace."""
+class VendorPriceListCollectionView(PricingAPIView):
+    """Create a simple vendor schedule without native supplier setup."""
 
-    def post(self, request, part_id: int, supplier_part_id: int):
+    def post(self, request, part_id: int):
         _require_role(request, "purchase_order", "change")
-        supplier_part = get_object_or_404(
-            SupplierPart, pk=supplier_part_id, part_id=part_id
-        )
-        serializer = PriceBreakInputSerializer(data=request.data)
+        part = get_object_or_404(Part, pk=part_id)
+        serializer = VendorPriceListSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        values = serializer.validated_data
-
-        if SupplierPriceBreak.objects.filter(
-            part=supplier_part, quantity=values["quantity"]
-        ).exists():
-            raise serializers.ValidationError(
-                {"quantity": "A supplier price break already exists at this quantity."}
-            )
-
-        price_break = SupplierPriceBreak.objects.create(
-            part=supplier_part,
-            quantity=values["quantity"],
-            price=Money(values["price"], values["currency"]),
-        )
-        return Response(_money_break(price_break), status=status.HTTP_201_CREATED)
+        instance = serializer.save(part=part)
+        return Response(VendorPriceListSerializer(instance).data, status=status.HTTP_201_CREATED)
 
 
-class SupplierBreakDetailView(PricingAPIView):
-    """Update or delete a native supplier price break."""
+class VendorPriceListDetailView(PricingAPIView):
+    """Update or delete a simple vendor schedule."""
 
     def _instance(self, part_id: int, pk: int):
-        return get_object_or_404(SupplierPriceBreak, pk=pk, part__part_id=part_id)
+        return get_object_or_404(VendorPriceList, pk=pk, part_id=part_id)
 
     def patch(self, request, part_id: int, pk: int):
         _require_role(request, "purchase_order", "change")
-        price_break = self._instance(part_id, pk)
-        initial = {
-            "quantity": price_break.quantity,
-            "price": price_break.price.amount,
-            "currency": price_break.price.currency.code,
-        }
-        serializer = PriceBreakInputSerializer(data={**initial, **request.data})
+        instance = self._instance(part_id, pk)
+        serializer = VendorPriceListSerializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        values = serializer.validated_data
+        return Response(VendorPriceListSerializer(serializer.save()).data)
 
-        duplicate = SupplierPriceBreak.objects.filter(
-            part=price_break.part, quantity=values["quantity"]
-        ).exclude(pk=price_break.pk)
-        if duplicate.exists():
+    def delete(self, request, part_id: int, pk: int):
+        _require_role(request, "purchase_order", "change")
+        self._instance(part_id, pk).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class VendorPriceBreakCollectionView(PricingAPIView):
+    """Create a quantity break on a simple vendor schedule."""
+
+    def post(self, request, part_id: int, price_list_id: int):
+        _require_role(request, "purchase_order", "change")
+        price_list = get_object_or_404(VendorPriceList, pk=price_list_id, part_id=part_id)
+        serializer = VendorPriceBreakSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        if VendorPriceBreak.objects.filter(
+            price_list=price_list, quantity=serializer.validated_data["quantity"]
+        ).exists():
             raise serializers.ValidationError(
-                {"quantity": "A supplier price break already exists at this quantity."}
+                {"quantity": "A vendor price break already exists at this quantity."}
             )
 
-        price_break.quantity = values["quantity"]
-        price_break.price = Money(values["price"], values["currency"])
-        price_break.save()
-        return Response(_money_break(price_break))
+        instance = serializer.save(price_list=price_list)
+        return Response(VendorPriceBreakSerializer(instance).data, status=status.HTTP_201_CREATED)
+
+
+class VendorPriceBreakDetailView(PricingAPIView):
+    """Update or delete a simple vendor quantity break."""
+
+    def _instance(self, part_id: int, pk: int):
+        return get_object_or_404(VendorPriceBreak, pk=pk, price_list__part_id=part_id)
+
+    def patch(self, request, part_id: int, pk: int):
+        _require_role(request, "purchase_order", "change")
+        instance = self._instance(part_id, pk)
+        serializer = VendorPriceBreakSerializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        quantity = serializer.validated_data.get("quantity", instance.quantity)
+        if (
+            VendorPriceBreak.objects.filter(price_list=instance.price_list, quantity=quantity)
+            .exclude(pk=instance.pk)
+            .exists()
+        ):
+            raise serializers.ValidationError(
+                {"quantity": "A vendor price break already exists at this quantity."}
+            )
+
+        return Response(VendorPriceBreakSerializer(serializer.save()).data)
 
     def delete(self, request, part_id: int, pk: int):
         _require_role(request, "purchase_order", "change")
