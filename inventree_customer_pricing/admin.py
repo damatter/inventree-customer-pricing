@@ -12,7 +12,6 @@ from .models import (
 )
 
 
-@admin.register(MaterialCostEntry)
 class MaterialCostEntryAdmin(admin.ModelAdmin):
     """Material cost rows stored against each part."""
 
@@ -28,7 +27,6 @@ class CustomerPriceBreakInline(admin.TabularInline):
     extra = 0
 
 
-@admin.register(CustomerPriceList)
 class CustomerPriceListAdmin(admin.ModelAdmin):
     """Customer price list administration."""
 
@@ -38,7 +36,6 @@ class CustomerPriceListAdmin(admin.ModelAdmin):
     inlines = (CustomerPriceBreakInline,)
 
 
-@admin.register(PartPricingPolicy)
 class PartPricingPolicyAdmin(admin.ModelAdmin):
     """Native sync policy administration."""
 
@@ -55,7 +52,6 @@ class VendorPriceBreakInline(admin.TabularInline):
     extra = 0
 
 
-@admin.register(VendorPriceList)
 class VendorPriceListAdmin(admin.ModelAdmin):
     """Simple vendor price-list administration."""
 
@@ -63,3 +59,16 @@ class VendorPriceListAdmin(admin.ModelAdmin):
     list_filter = ("preferred", "active", "currency")
     search_fields = ("part__name", "part__IPN", "vendor_name", "vendor_sku")
     inlines = (VendorPriceBreakInline,)
+
+
+# InvenTree reloads this module when an AppMixin has only some of its models
+# registered. Django's @admin.register decorator raises AlreadyRegistered for
+# the models which survived that reload, so register only the missing models.
+for model, model_admin in (
+    (MaterialCostEntry, MaterialCostEntryAdmin),
+    (CustomerPriceList, CustomerPriceListAdmin),
+    (PartPricingPolicy, PartPricingPolicyAdmin),
+    (VendorPriceList, VendorPriceListAdmin),
+):
+    if not admin.site.is_registered(model):
+        admin.site.register(model, model_admin)

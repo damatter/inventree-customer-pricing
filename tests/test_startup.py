@@ -131,3 +131,71 @@ def test_views_accept_the_pre_030_currency_converter_name():
 
     assert "except ImportError" in source
     assert "_convert_amount as convert_amount" in source
+
+
+def test_admin_registration_is_safe_to_reload(monkeypatch):
+    """InvenTree can reload admin.py when only some models remain registered."""
+
+    django_module = ModuleType("django")
+    django_module.__path__ = []
+    contrib_module = ModuleType("django.contrib")
+    contrib_module.__path__ = []
+    admin_module = ModuleType("django.contrib.admin")
+
+    class ModelAdmin:
+        pass
+
+    class TabularInline:
+        pass
+
+    class AdminSite:
+        def __init__(self):
+            self.registry = {}
+
+        def is_registered(self, model):
+            return model in self.registry
+
+        def register(self, model, model_admin):
+            if self.is_registered(model):
+                raise RuntimeError(f"{model.__name__} was registered twice")
+            self.registry[model] = model_admin
+
+    admin_module.ModelAdmin = ModelAdmin
+    admin_module.TabularInline = TabularInline
+    admin_module.site = AdminSite()
+    contrib_module.admin = admin_module
+
+    models_module = ModuleType("inventree_customer_pricing.models")
+    model_names = (
+        "CustomerPriceBreak",
+        "CustomerPriceList",
+        "MaterialCostEntry",
+        "PartPricingPolicy",
+        "VendorPriceBreak",
+        "VendorPriceList",
+    )
+    for name in model_names:
+        setattr(models_module, name, type(name, (), {}))
+
+    fake_modules = {
+        "django": django_module,
+        "django.contrib": contrib_module,
+        "django.contrib.admin": admin_module,
+        "inventree_customer_pricing.models": models_module,
+    }
+    for name, module in fake_modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    sys.modules.pop("inventree_customer_pricing.admin", None)
+    imported = importlib.import_module("inventree_customer_pricing.admin")
+    admin_module.site.registry.pop(models_module.MaterialCostEntry)
+    importlib.reload(imported)
+
+    assert set(admin_module.site.registry) == {
+        models_module.MaterialCostEntry,
+        models_module.CustomerPriceList,
+        models_module.PartPricingPolicy,
+        models_module.VendorPriceList,
+    }
+
+    sys.modules.pop("inventree_customer_pricing.admin", None)
