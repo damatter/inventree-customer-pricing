@@ -24,10 +24,17 @@ from .models import (
 )
 from .native_sync import (
     CustomerPricingSyncError,
-    convert_amount,
     resolved_sync_currency,
     sync_part_sale_prices,
 )
+
+# During an in-place plugin update, an InvenTree process can retain the 0.2.x
+# native_sync module in memory while loading this newer views module. Accept
+# the former private name until the process has restarted.
+try:
+    from .native_sync import convert_amount
+except ImportError:  # pragma: no cover - only reachable during a mixed hot upgrade
+    from .native_sync import _convert_amount as convert_amount
 from .serializers import (
     CurrencyField,
     CustomerPriceBreakSerializer,

@@ -122,3 +122,12 @@ def test_mobile_contract_is_versioned_and_authenticated_by_plugin_routes():
             "endpoint": "/plugin/test/{pk}/",
         }
     }
+
+
+def test_views_accept_the_pre_030_currency_converter_name():
+    """A hot plugin update can briefly retain native_sync from version 0.2.x."""
+
+    source = (PACKAGE_ROOT / "views.py").read_text(encoding="utf-8")
+
+    assert "except ImportError" in source
+    assert "_convert_amount as convert_amount" in source
