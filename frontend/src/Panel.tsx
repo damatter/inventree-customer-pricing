@@ -902,9 +902,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
                           <Button
                             size="xs"
                             variant="light"
-                            onClick={() =>
-                              openBreakEditor(priceList.pk, priceList.currency)
-                            }
+                            onClick={() => openBreakEditor(priceList.pk, priceList.currency)}
                           >
                             Add quantity break
                           </Button>
@@ -917,7 +915,6 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
             </Stack>
           </Tabs.Panel>
         )}
-
       </Tabs>
 
       <Modal
