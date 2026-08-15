@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from users.permissions import check_user_role
 
+from .access import user_has_pricing_access
 from .models import (
     CustomerPriceBreak,
     CustomerPriceList,
@@ -98,10 +99,19 @@ def _material_costs_by_currency(part: Part, currencies: set[str]) -> tuple[dict,
     return totals, errors
 
 
-class PricingAPIView(APIView):
-    """Base class which relies on explicit InvenTree role checks."""
+class PricingAccessPermission(permissions.BasePermission):
+    """Require membership of the configured sensitive-pricing group."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    message = "You are not a member of the configured Part Pricing access group."
+
+    def has_permission(self, request, view):
+        return user_has_pricing_access(request.user)
+
+
+class PricingAPIView(APIView):
+    """Base class with both authentication and plugin-specific access checks."""
+
+    permission_classes = [permissions.IsAuthenticated, PricingAccessPermission]
 
 
 class PriceBreakInputSerializer(serializers.Serializer):
@@ -137,11 +147,11 @@ class PricingWorkspaceView(PricingAPIView):
                 "last_sync_error": "",
             }
         )
+        policy_data["sync_native_sale"] = True
         policy_data["resolved_currency"] = resolved_sync_currency(policy)
 
         customer_lists = []
         customer_options = []
-        native_sale_breaks = []
         customer_queryset = CustomerPriceList.objects.none()
 
         if can_view_sales:
@@ -160,19 +170,11 @@ class PricingWorkspaceView(PricingAPIView):
                     "name"
                 )
             ]
-            native_sale_breaks = [
-                _money_break(price_break)
-                for price_break in PartSellPriceBreak.objects.filter(part=part).order_by("quantity")
-            ]
-
-        vendor_lists = []
         material_costs = []
         material_cost_by_currency = {}
         material_cost_errors = {}
 
         if can_view_purchase:
-            vendor_queryset = VendorPriceList.objects.filter(part=part).prefetch_related("breaks")
-            vendor_lists = VendorPriceListSerializer(vendor_queryset, many=True).data
             material_queryset = MaterialCostEntry.objects.filter(part=part)
             material_costs = MaterialCostEntrySerializer(material_queryset, many=True).data
 
@@ -212,8 +214,10 @@ class PricingWorkspaceView(PricingAPIView):
                 "policy": policy_data,
                 "customer_lists": customer_lists,
                 "customers": customer_options,
-                "native_sale_breaks": native_sale_breaks,
-                "vendor_lists": vendor_lists,
+                # Retain empty compatibility keys for older mobile/web bundles
+                # while sale and vendor pricing are removed from the product UI.
+                "native_sale_breaks": [],
+                "vendor_lists": [],
                 "material_costs": material_costs,
                 "material_cost_summary": material_cost_summary,
                 "material_cost_errors": material_cost_errors,
@@ -304,13 +308,10 @@ class MobileDashboardView(PricingAPIView):
 
         material_count = 0
         customer_count = 0
-        vendor_count = 0
         part_ids = set()
         if can_view_purchase:
             material_count = MaterialCostEntry.objects.filter(active=True).count()
-            vendor_count = VendorPriceList.objects.filter(active=True).count()
             part_ids.update(MaterialCostEntry.objects.values_list("part_id", flat=True))
-            part_ids.update(VendorPriceList.objects.values_list("part_id", flat=True))
         if can_view_sales:
             customer_count = CustomerPriceList.objects.filter(active=True).count()
             part_ids.update(CustomerPriceList.objects.values_list("part_id", flat=True))
@@ -326,7 +327,6 @@ class MobileDashboardView(PricingAPIView):
             overview_items.extend(
                 [
                     {"label": "Active material entries", "value": str(material_count)},
-                    {"label": "Active vendor schedules", "value": str(vendor_count)},
                 ]
             )
         if can_view_sales:

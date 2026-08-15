@@ -2,27 +2,39 @@
 
 from django.utils.translation import gettext_lazy as _
 from plugin import InvenTreePlugin
-from plugin.mixins import AppMixin, UrlsMixin, UserInterfaceMixin
+from plugin.mixins import AppMixin, SettingsMixin, UrlsMixin, UserInterfaceMixin
 
 from . import PLUGIN_VERSION
 from .mobile import MobileAppMixin
 
 
 class CustomerPricingPlugin(
-    MobileAppMixin, AppMixin, UrlsMixin, UserInterfaceMixin, InvenTreePlugin
+    MobileAppMixin, SettingsMixin, AppMixin, UrlsMixin, UserInterfaceMixin, InvenTreePlugin
 ):
     """Add a unified pricing workspace to InvenTree part detail pages."""
 
     TITLE = "Part Pricing"
     NAME = "CustomerPricingPlugin"
     SLUG = "customer-pricing"
-    DESCRIPTION = "Manage material costs, purchasing, sale pricing, and customer margins per part."
+    DESCRIPTION = "Manage material costs, customer pricing, and margins per part."
     VERSION = PLUGIN_VERSION
     AUTHOR = "Matt Dick"
     WEBSITE = "https://github.com/damatter/inventree-customer-pricing"
     LICENSE = "MIT"
     MIN_VERSION = "1.3.2"
     MAX_VERSION = "1.3.99"
+
+    SETTINGS = {
+        "ACCESS_GROUP": {
+            "name": _("Pricing access group"),
+            "description": _(
+                "Only superusers and members of this group can discover or access Part Pricing. "
+                "Sales and purchasing roles still control read and edit capabilities."
+            ),
+            "model": "auth.group",
+            "required": False,
+        }
+    }
 
     MOBILE_APP_FEATURES = (
         {
@@ -57,6 +69,8 @@ class CustomerPricingPlugin(
         from part.models import Part
         from users.permissions import check_user_role
 
+        from .access import user_has_pricing_access
+
         if context.get("target_model") != "part":
             return []
 
@@ -66,6 +80,9 @@ class CustomerPricingPlugin(
             return []
 
         user = request.user
+        if not user_has_pricing_access(user):
+            return []
+
         can_view_sales = check_user_role(user, "sales_order", "view")
         can_view_purchase = check_user_role(user, "purchase_order", "view")
 
@@ -76,7 +93,7 @@ class CustomerPricingPlugin(
             {
                 "key": "part-pricing-workspace",
                 "title": _("Part Pricing"),
-                "description": _("Material costs, purchasing, sale pricing, and customer margins"),
+                "description": _("Material costs, customer schedules, and profit margins"),
                 "icon": "ti:currency-dollar:outline",
                 "source": self.plugin_static_file("Panel.js:RenderCustomerPricingPluginPanel"),
                 "options": self.mobile_app_options(
@@ -95,7 +112,12 @@ class CustomerPricingPlugin(
 
         from users.permissions import check_user_role
 
+        from .access import user_has_pricing_access
+
         user = request.user
+        if not user_has_pricing_access(user):
+            return []
+
         if not (
             user.is_superuser
             or check_user_role(user, "sales_order", "view")
@@ -107,7 +129,7 @@ class CustomerPricingPlugin(
             {
                 "key": "part-pricing-overview",
                 "title": _("Part Pricing"),
-                "description": _("Material costs, customer schedules, and vendor pricing"),
+                "description": _("Material costs, customer schedules, and profit margins"),
                 "icon": "ti:currency-dollar:outline",
                 "source": self.plugin_static_file("Panel.js:RenderPartPricingDashboard"),
                 "options": {

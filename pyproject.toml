@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inventree-customer-pricing"
-description = "Per-part material costs, purchasing, customer pricing, and margin analysis for InvenTree"
+description = "Per-part material costs, customer pricing, and margin analysis for InvenTree"
 dynamic = ["version"]
 authors = [{ name = "Matt Dick" }]
 readme = "README.md"
@@ -19,6 +19,8 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
 ]
 
 [project.urls]

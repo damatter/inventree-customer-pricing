@@ -7,8 +7,6 @@ from .models import (
     CustomerPriceList,
     MaterialCostEntry,
     PartPricingPolicy,
-    VendorPriceBreak,
-    VendorPriceList,
 )
 
 
@@ -42,23 +40,7 @@ class PartPricingPolicyAdmin(admin.ModelAdmin):
     list_display = ("part", "sync_native_sale", "sync_currency", "last_synced")
     list_filter = ("sync_native_sale", "sync_currency")
     search_fields = ("part__name", "part__IPN")
-    readonly_fields = ("last_synced", "last_sync_error")
-
-
-class VendorPriceBreakInline(admin.TabularInline):
-    """Edit simple vendor breaks inline with their price list."""
-
-    model = VendorPriceBreak
-    extra = 0
-
-
-class VendorPriceListAdmin(admin.ModelAdmin):
-    """Simple vendor price-list administration."""
-
-    list_display = ("part", "vendor_name", "vendor_sku", "currency", "preferred", "active")
-    list_filter = ("preferred", "active", "currency")
-    search_fields = ("part__name", "part__IPN", "vendor_name", "vendor_sku")
-    inlines = (VendorPriceBreakInline,)
+    readonly_fields = ("sync_native_sale", "last_synced", "last_sync_error")
 
 
 # InvenTree reloads this module when an AppMixin has only some of its models
@@ -68,7 +50,6 @@ for model, model_admin in (
     (MaterialCostEntry, MaterialCostEntryAdmin),
     (CustomerPriceList, CustomerPriceListAdmin),
     (PartPricingPolicy, PartPricingPolicyAdmin),
-    (VendorPriceList, VendorPriceListAdmin),
 ):
     if not admin.site.is_registered(model):
         admin.site.register(model, model_admin)

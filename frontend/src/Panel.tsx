@@ -14,7 +14,6 @@ import {
   Select,
   SimpleGrid,
   Stack,
-  Switch,
   Table,
   Tabs,
   Text,
@@ -71,24 +70,6 @@ type CustomerPriceList = {
   updated: string;
 };
 
-type VendorPriceBreak = NativeBreak & {
-  price_list: number;
-};
-
-type VendorPriceList = {
-  pk: number;
-  part: number;
-  vendor_name: string;
-  vendor_sku: string;
-  currency: string;
-  purchase_url: string;
-  lead_time_days: number | null;
-  active: boolean;
-  preferred: boolean;
-  notes: string;
-  breaks: VendorPriceBreak[];
-};
-
 type MaterialCostEntry = {
   pk: number;
   part: number;
@@ -116,16 +97,10 @@ type WorkspaceData = {
     change_purchase: boolean;
   };
   policy: {
-    sync_native_sale: boolean;
-    sync_currency: string;
     resolved_currency: string;
-    last_synced: string | null;
-    last_sync_error: string;
   };
   customer_lists: CustomerPriceList[];
   customers: { pk: number; name: string; currency: string }[];
-  native_sale_breaks: NativeBreak[];
-  vendor_lists: VendorPriceList[];
   material_costs: MaterialCostEntry[];
   material_cost_summary: { currency: string; total: string }[];
   material_cost_errors: Record<string, string>;
@@ -140,18 +115,6 @@ type ListEditorState = {
   notes: string;
 };
 
-type VendorEditorState = {
-  record?: VendorPriceList;
-  vendorName: string;
-  vendorSku: string;
-  currency: string | null;
-  purchaseUrl: string;
-  leadTimeDays: string | number;
-  active: boolean;
-  preferred: boolean;
-  notes: string;
-};
-
 type MaterialEditorState = {
   record?: MaterialCostEntry;
   name: string;
@@ -162,11 +125,8 @@ type MaterialEditorState = {
   notes: string;
 };
 
-type BreakKind = 'customer' | 'sale' | 'purchase';
-
 type BreakEditorState = {
-  kind: BreakKind;
-  ownerId?: number;
+  ownerId: number;
   record?: NativeBreak | CustomerBreak;
   quantity: string | number;
   price: string | number;
@@ -206,7 +166,7 @@ function formatMoney(value: string | null, currency: string, locale: string): st
       style: 'currency',
       currency,
       minimumFractionDigits: 2,
-      maximumFractionDigits: 6
+      maximumFractionDigits: 2
     }).format(Number(value));
   } catch {
     return `${currency} ${value}`;
@@ -214,7 +174,7 @@ function formatMoney(value: string | null, currency: string, locale: string): st
 }
 
 function formatQuantity(value: string): string {
-  return Number(value).toLocaleString(undefined, { maximumFractionDigits: 5 });
+  return Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
@@ -307,7 +267,7 @@ function BreakTable({
                   <Table.Td>
                     {customerRecord.profit_margin_percent === null
                       ? '\u2014'
-                      : `${Number(customerRecord.profit_margin_percent).toFixed(1)}%`}
+                      : `${Number(customerRecord.profit_margin_percent).toFixed(2)}%`}
                   </Table.Td>
                 )}
                 {editable && (
@@ -345,7 +305,6 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [listEditor, setListEditor] = useState<ListEditorState | null>(null);
-  const [vendorEditor, setVendorEditor] = useState<VendorEditorState | null>(null);
   const [materialEditor, setMaterialEditor] = useState<MaterialEditorState | null>(null);
   const [breakEditor, setBreakEditor] = useState<BreakEditorState | null>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
@@ -420,6 +379,14 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
     );
   }, [data]);
 
+  const headlineSchedule = useMemo(
+    () =>
+      data?.customer_lists.find(
+        (priceList) => priceList.active && priceList.base_selling_price !== null
+      ) ?? null,
+    [data]
+  );
+
   const availableCustomers = useMemo(() => {
     if (!data) {
       return [];
@@ -486,61 +453,6 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
     } catch {
       setListEditor(editor);
     }
-  };
-
-  const openNewVendor = () => {
-    setVendorEditor({
-      vendorName: '',
-      vendorSku: '',
-      currency: data?.policy.resolved_currency ?? 'USD',
-      purchaseUrl: '',
-      leadTimeDays: '',
-      active: true,
-      preferred: (data?.vendor_lists.length ?? 0) === 0,
-      notes: ''
-    });
-  };
-
-  const openEditVendor = (record: VendorPriceList) => {
-    setVendorEditor({
-      record,
-      vendorName: record.vendor_name,
-      vendorSku: record.vendor_sku,
-      currency: record.currency,
-      purchaseUrl: record.purchase_url,
-      leadTimeDays: record.lead_time_days ?? '',
-      active: record.active,
-      preferred: record.preferred,
-      notes: record.notes
-    });
-  };
-
-  const saveVendor = async () => {
-    if (!vendorEditor?.vendorName.trim() || !vendorEditor.currency) {
-      return;
-    }
-
-    const payload = {
-      vendor_name: vendorEditor.vendorName.trim(),
-      vendor_sku: vendorEditor.vendorSku.trim(),
-      currency: vendorEditor.currency,
-      purchase_url: vendorEditor.purchaseUrl.trim(),
-      lead_time_days: vendorEditor.leadTimeDays === '' ? null : vendorEditor.leadTimeDays,
-      active: vendorEditor.active,
-      preferred: vendorEditor.preferred,
-      notes: vendorEditor.notes
-    };
-    const url = vendorEditor.record
-      ? `${apiBase}/vendor-lists/${vendorEditor.record.pk}/`
-      : `${apiBase}/vendor-lists/`;
-
-    await request(
-      vendorEditor.record ? 'patch' : 'post',
-      url,
-      payload,
-      vendorEditor.record ? 'Vendor pricing saved.' : 'Vendor pricing created.'
-    );
-    setVendorEditor(null);
   };
 
   const openNewMaterial = () => {
@@ -612,28 +524,12 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
     });
   };
 
-  const askDeleteVendor = (record: VendorPriceList) => {
-    setConfirmation({
-      title: 'Delete vendor pricing?',
-      message: `This removes ${record.vendor_name} and every purchase-price break for this part.`,
-      action: async () => {
-        await request(
-          'delete',
-          `${apiBase}/vendor-lists/${record.pk}/`,
-          undefined,
-          'Vendor pricing deleted.'
-        );
-      }
-    });
-  };
   const openBreakEditor = (
-    kind: BreakKind,
-    ownerId: number | undefined,
+    ownerId: number,
     currency: string,
     record?: NativeBreak | CustomerBreak
   ) => {
     setBreakEditor({
-      kind,
       ownerId,
       record,
       quantity: record?.quantity ?? 1,
@@ -647,27 +543,13 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
       return;
     }
 
-    const basePayload = {
+    const payload = {
       quantity: breakEditor.quantity,
       price: breakEditor.price
     };
-    let url = '';
-    let payload: Record<string, unknown> = basePayload;
-
-    if (breakEditor.kind === 'customer') {
-      url = breakEditor.record
-        ? `${apiBase}/customer-breaks/${breakEditor.record.pk}/`
-        : `${apiBase}/customer-lists/${breakEditor.ownerId}/breaks/`;
-    } else if (breakEditor.kind === 'sale') {
-      url = breakEditor.record
-        ? `${apiBase}/sale-breaks/${breakEditor.record.pk}/`
-        : `${apiBase}/sale-breaks/`;
-      payload = { ...basePayload, currency: breakEditor.currency };
-    } else {
-      url = breakEditor.record
-        ? `${apiBase}/vendor-breaks/${breakEditor.record.pk}/`
-        : `${apiBase}/vendor-lists/${breakEditor.ownerId}/breaks/`;
-    }
+    const url = breakEditor.record
+      ? `${apiBase}/customer-breaks/${breakEditor.record.pk}/`
+      : `${apiBase}/customer-lists/${breakEditor.ownerId}/breaks/`;
 
     await request(
       breakEditor.record ? 'patch' : 'post',
@@ -681,7 +563,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
   const askDeleteList = (record: CustomerPriceList) => {
     setConfirmation({
       title: 'Delete customer price list?',
-      message: `This removes every ${record.customer_name} price break for this part. Native sale pricing will be synchronized immediately.`,
+      message: `This removes every ${record.customer_name} price break for this part. InvenTree pricing will be synchronized immediately.`,
       action: async () => {
         await request(
           'delete',
@@ -693,25 +575,19 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
     });
   };
 
-  const askDeleteBreak = (kind: BreakKind, record: NativeBreak | CustomerBreak) => {
-    const segment =
-      kind === 'customer' ? 'customer-breaks' : kind === 'sale' ? 'sale-breaks' : 'vendor-breaks';
+  const askDeleteBreak = (record: NativeBreak | CustomerBreak) => {
     setConfirmation({
       title: 'Delete price break?',
       message: `The quantity ${formatQuantity(record.quantity)} price break will be removed.`,
       action: async () => {
         await request(
           'delete',
-          `${apiBase}/${segment}/${record.pk}/`,
+          `${apiBase}/customer-breaks/${record.pk}/`,
           undefined,
           'Price break deleted.'
         );
       }
     });
-  };
-
-  const updatePolicy = async (payload: Record<string, unknown>) => {
-    await request('patch', `${apiBase}/policy/`, payload, 'Synchronization policy saved.');
   };
 
   const defaultTab = data?.permissions.view_purchase ? 'materials' : 'customers';
@@ -744,20 +620,70 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
           color: 'white'
         }}
       >
-        <Group justify="space-between" align="flex-start">
+        <Group justify="space-between" align="flex-start" wrap="wrap">
           <Stack gap={3}>
             <Text size="xs" fw={700} tt="uppercase" opacity={0.8}>
               Pricing workspace
             </Text>
             <Title order={3}>{data.part.ipn || data.part.name}</Title>
             <Text size="sm" opacity={0.9}>
-              Purchase, sale, and customer pricing in one place
+              Material costs, customer schedules, and margins in one place
             </Text>
           </Stack>
-          <Badge color={data.policy.sync_native_sale ? 'teal' : 'gray'} variant="filled" size="lg">
-            {data.policy.sync_native_sale ? 'Native sync active' : 'Manual sale pricing'}
+          <Badge color="teal" variant="filled" size="lg">
+            Highest customer pricing syncs automatically
           </Badge>
         </Group>
+
+        <SimpleGrid cols={{ base: 1, sm: 3 }} mt="lg">
+          {[
+            {
+              label: 'Material cost',
+              value: formatMoney(
+                headlineSchedule?.material_cost ?? resolvedMaterialTotal,
+                headlineSchedule?.currency ?? data.policy.resolved_currency,
+                context.locale
+              ),
+              detail: `${data.material_costs.filter((entry) => entry.active).length} active entries`
+            },
+            {
+              label: 'Gross profit',
+              value: formatMoney(
+                headlineSchedule?.profit_amount ?? null,
+                headlineSchedule?.currency ?? data.policy.resolved_currency,
+                context.locale
+              ),
+              detail: headlineSchedule?.customer_name ?? 'Add a customer selling price'
+            },
+            {
+              label: 'Profit margin',
+              value:
+                headlineSchedule?.profit_margin_percent === null || !headlineSchedule
+                  ? '\u2014'
+                  : `${Number(headlineSchedule.profit_margin_percent).toFixed(2)}%`,
+              detail: headlineSchedule
+                ? `${headlineSchedule.customer_name} base tier`
+                : 'Calculated from selling price and materials'
+            }
+          ].map((metric) => (
+            <Paper
+              key={metric.label}
+              radius="md"
+              p="sm"
+              style={{ background: 'rgba(255, 255, 255, 0.14)', color: 'white' }}
+            >
+              <Text size="xs" fw={700} tt="uppercase" opacity={0.8}>
+                {metric.label}
+              </Text>
+              <Text size="xl" fw={750} truncate>
+                {metric.value}
+              </Text>
+              <Text size="xs" opacity={0.85} truncate>
+                {metric.detail}
+              </Text>
+            </Paper>
+          ))}
+        </SimpleGrid>
       </Paper>
 
       {(data.permissions.view_sales || data.permissions.view_purchase) && (
@@ -787,13 +713,6 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
               detail="Across all customer schedules"
             />
           )}
-          {data.permissions.view_sales && (
-            <MetricCard
-              label="Native sale tiers"
-              value={String(data.native_sale_breaks.length)}
-              detail={`Synchronized in ${data.policy.resolved_currency}`}
-            />
-          )}
         </SimpleGrid>
       )}
 
@@ -801,8 +720,6 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
         <Tabs.List>
           {data.permissions.view_purchase && <Tabs.Tab value="materials">Material costs</Tabs.Tab>}
           {data.permissions.view_sales && <Tabs.Tab value="customers">Customer pricing</Tabs.Tab>}
-          {data.permissions.view_sales && <Tabs.Tab value="sale">Sale pricing</Tabs.Tab>}
-          {data.permissions.view_purchase && <Tabs.Tab value="purchase">Purchase pricing</Tabs.Tab>}
         </Tabs.List>
 
         {data.permissions.view_purchase && (
@@ -934,7 +851,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
                                   }
                                   variant="light"
                                 >
-                                  {Number(priceList.profit_margin_percent).toFixed(1)}% margin
+                                  {Number(priceList.profit_margin_percent).toFixed(2)}% margin
                                 </Badge>
                               )}
                             </Group>
@@ -975,9 +892,9 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
                         editable={data.permissions.change_sales}
                         showMargin
                         onEdit={(record) =>
-                          openBreakEditor('customer', priceList.pk, priceList.currency, record)
+                          openBreakEditor(priceList.pk, priceList.currency, record)
                         }
-                        onDelete={(record) => askDeleteBreak('customer', record)}
+                        onDelete={askDeleteBreak}
                       />
 
                       {data.permissions.change_sales && (
@@ -985,227 +902,12 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
                           <Button
                             size="xs"
                             variant="light"
-                            onClick={() =>
-                              openBreakEditor('customer', priceList.pk, priceList.currency)
-                            }
+                            onClick={() => openBreakEditor(priceList.pk, priceList.currency)}
                           >
                             Add quantity break
                           </Button>
                         </Group>
                       )}
-                    </Stack>
-                  </Card>
-                ))
-              )}
-            </Stack>
-          </Tabs.Panel>
-        )}
-
-        {data.permissions.view_sales && (
-          <Tabs.Panel value="sale" pt="lg">
-            <Stack gap="md">
-              <Card withBorder radius="md" padding="lg">
-                <Stack gap="md">
-                  <Group justify="space-between" align="flex-start">
-                    <Stack gap={2}>
-                      <Text fw={700}>Native sale pricing sync</Text>
-                      <Text size="sm" c="dimmed" maw={720}>
-                        When enabled, every customer quantity boundary is evaluated and the highest
-                        applicable customer price is written to InvenTree's native sale-price table.
-                      </Text>
-                    </Stack>
-                    {data.permissions.change_sales && (
-                      <Button
-                        size="xs"
-                        variant="light"
-                        disabled={!data.policy.sync_native_sale}
-                        onClick={() =>
-                          request(
-                            'post',
-                            `${apiBase}/sync/`,
-                            undefined,
-                            'Native sale prices synchronized.'
-                          )
-                        }
-                      >
-                        Sync now
-                      </Button>
-                    )}
-                  </Group>
-
-                  {data.policy.last_sync_error && (
-                    <Alert color="red" title="Last synchronization failed">
-                      {data.policy.last_sync_error}
-                    </Alert>
-                  )}
-
-                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                    <Switch
-                      label="Automatically synchronize native sale pricing"
-                      description="Customer pricing is authoritative while enabled."
-                      checked={data.policy.sync_native_sale}
-                      disabled={!data.permissions.change_sales}
-                      onChange={(event) =>
-                        updatePolicy({ sync_native_sale: event.currentTarget.checked })
-                      }
-                    />
-                    <Select
-                      label="Native synchronization currency"
-                      description="Different customer currencies are converted before comparison."
-                      searchable
-                      clearable
-                      placeholder={data.policy.resolved_currency}
-                      value={data.policy.sync_currency || null}
-                      data={data.currencies}
-                      disabled={!data.permissions.change_sales}
-                      onChange={(value) => updatePolicy({ sync_currency: value || '' })}
-                    />
-                  </SimpleGrid>
-
-                  <Text size="xs" c="dimmed">
-                    {data.policy.last_synced
-                      ? `Last synchronized ${new Intl.DateTimeFormat(context.locale || 'en', {
-                          dateStyle: 'medium',
-                          timeStyle: 'short'
-                        }).format(new Date(data.policy.last_synced))}`
-                      : 'Native pricing has not been synchronized by this plugin yet.'}
-                  </Text>
-                </Stack>
-              </Card>
-
-              <Card withBorder radius="md" padding="lg">
-                <Stack gap="md">
-                  <Group justify="space-between">
-                    <Stack gap={2}>
-                      <Text fw={700}>InvenTree sale-price breaks</Text>
-                      <Text size="sm" c="dimmed">
-                        {data.policy.sync_native_sale
-                          ? 'Read-only here because these rows are managed by customer pricing.'
-                          : 'Automatic sync is off; these native rows can be edited manually.'}
-                      </Text>
-                    </Stack>
-                    {data.permissions.change_sales && !data.policy.sync_native_sale && (
-                      <Button
-                        size="xs"
-                        onClick={() =>
-                          openBreakEditor('sale', undefined, data.policy.resolved_currency)
-                        }
-                      >
-                        Add sale break
-                      </Button>
-                    )}
-                  </Group>
-
-                  <BreakTable
-                    records={data.native_sale_breaks}
-                    currency={data.policy.resolved_currency}
-                    locale={context.locale}
-                    editable={data.permissions.change_sales && !data.policy.sync_native_sale}
-                    onEdit={(record) => openBreakEditor('sale', undefined, record.currency, record)}
-                    onDelete={(record) => askDeleteBreak('sale', record)}
-                  />
-                </Stack>
-              </Card>
-            </Stack>
-          </Tabs.Panel>
-        )}
-
-        {data.permissions.view_purchase && (
-          <Tabs.Panel value="purchase" pt="lg">
-            <Stack gap="md">
-              <Group justify="space-between" align="flex-start">
-                <Stack gap={2}>
-                  <Text fw={700}>Simple purchasing</Text>
-                  <Text size="sm" c="dimmed">
-                    Track vendor options and price breaks without creating suppliers, SKUs or
-                    purchase orders.
-                  </Text>
-                </Stack>
-                {data.permissions.change_purchase && (
-                  <Button onClick={openNewVendor}>Add vendor pricing</Button>
-                )}
-              </Group>
-
-              {data.vendor_lists.length === 0 ? (
-                <EmptyState
-                  title="No vendor pricing yet"
-                  message="Add a vendor name and its quantity prices. Native supplier setup is not required."
-                />
-              ) : (
-                data.vendor_lists.map((vendor) => (
-                  <Card key={vendor.pk} withBorder radius="md" padding="lg">
-                    <Stack gap="md">
-                      <Group justify="space-between" align="flex-start">
-                        <Stack gap={2}>
-                          <Group gap="xs">
-                            <Text fw={750}>{vendor.vendor_name}</Text>
-                            {vendor.preferred && <Badge variant="light">Preferred</Badge>}
-                            {!vendor.active && <Badge color="gray">Paused</Badge>}
-                            <Badge variant="outline">{vendor.currency}</Badge>
-                          </Group>
-                          {vendor.vendor_sku && (
-                            <Text size="sm" c="dimmed">
-                              Vendor SKU {vendor.vendor_sku}
-                            </Text>
-                          )}
-                          {vendor.lead_time_days !== null && (
-                            <Text size="sm" c="dimmed">
-                              Lead time {vendor.lead_time_days} days
-                            </Text>
-                          )}
-                          {vendor.purchase_url && (
-                            <Text size="xs" c="dimmed">
-                              {vendor.purchase_url}
-                            </Text>
-                          )}
-                          {vendor.notes && (
-                            <Text size="sm" c="dimmed">
-                              {vendor.notes}
-                            </Text>
-                          )}
-                        </Stack>
-                        {data.permissions.change_purchase && (
-                          <Group gap="xs">
-                            <Button
-                              size="xs"
-                              variant="default"
-                              onClick={() => openEditVendor(vendor)}
-                            >
-                              Edit vendor
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="default"
-                              color="red"
-                              onClick={() => askDeleteVendor(vendor)}
-                            >
-                              Delete
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="light"
-                              onClick={() =>
-                                openBreakEditor('purchase', vendor.pk, vendor.currency)
-                              }
-                            >
-                              Add price break
-                            </Button>
-                          </Group>
-                        )}
-                      </Group>
-
-                      <Divider />
-
-                      <BreakTable
-                        records={vendor.breaks}
-                        currency={vendor.currency}
-                        locale={context.locale}
-                        editable={data.permissions.change_purchase}
-                        onEdit={(record) =>
-                          openBreakEditor('purchase', vendor.pk, vendor.currency, record)
-                        }
-                        onDelete={(record) => askDeleteBreak('purchase', record)}
-                      />
                     </Stack>
                   </Card>
                 ))
@@ -1375,92 +1077,6 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
       </Modal>
 
       <Modal
-        opened={vendorEditor !== null}
-        onClose={() => setVendorEditor(null)}
-        title={vendorEditor?.record ? 'Edit vendor pricing' : 'Add vendor pricing'}
-        centered
-      >
-        {vendorEditor && (
-          <Stack>
-            <TextInput
-              label="Vendor name"
-              placeholder="Where do you buy this part?"
-              required
-              value={vendorEditor.vendorName}
-              onChange={(event) =>
-                setVendorEditor({ ...vendorEditor, vendorName: event.currentTarget.value })
-              }
-            />
-            <TextInput
-              label="Vendor SKU"
-              description="Optional"
-              value={vendorEditor.vendorSku}
-              onChange={(event) =>
-                setVendorEditor({ ...vendorEditor, vendorSku: event.currentTarget.value })
-              }
-            />
-            <Select
-              label="Currency"
-              searchable
-              required
-              data={data.currencies}
-              value={vendorEditor.currency}
-              onChange={(currency) => setVendorEditor({ ...vendorEditor, currency })}
-            />
-            <TextInput
-              label="Purchase link"
-              description="Optional product or ordering URL"
-              value={vendorEditor.purchaseUrl}
-              onChange={(event) =>
-                setVendorEditor({ ...vendorEditor, purchaseUrl: event.currentTarget.value })
-              }
-            />
-            <NumberInput
-              label="Lead time in days"
-              min={0}
-              allowDecimal={false}
-              value={vendorEditor.leadTimeDays}
-              onChange={(leadTimeDays) => setVendorEditor({ ...vendorEditor, leadTimeDays })}
-            />
-            <Checkbox
-              label="Preferred vendor"
-              description="Making this preferred clears the preferred flag from other vendors for this part."
-              checked={vendorEditor.preferred}
-              onChange={(event) =>
-                setVendorEditor({ ...vendorEditor, preferred: event.currentTarget.checked })
-              }
-            />
-            <Checkbox
-              label="Active vendor option"
-              checked={vendorEditor.active}
-              onChange={(event) =>
-                setVendorEditor({ ...vendorEditor, active: event.currentTarget.checked })
-              }
-            />
-            <Textarea
-              label="Notes"
-              placeholder="Ordering details, contact or reference"
-              minRows={3}
-              value={vendorEditor.notes}
-              onChange={(event) =>
-                setVendorEditor({ ...vendorEditor, notes: event.currentTarget.value })
-              }
-            />
-            <Group justify="flex-end">
-              <Button variant="default" onClick={() => setVendorEditor(null)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={saveVendor}
-                disabled={!vendorEditor.vendorName.trim() || !vendorEditor.currency}
-              >
-                Save vendor pricing
-              </Button>
-            </Group>
-          </Stack>
-        )}
-      </Modal>
-      <Modal
         opened={breakEditor !== null}
         onClose={() => setBreakEditor(null)}
         title={breakEditor?.record ? 'Edit price break' : 'Add price break'}
@@ -1490,19 +1106,12 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
               required
               data={data.currencies}
               value={breakEditor.currency}
-              disabled={breakEditor.kind === 'customer' || breakEditor.kind === 'purchase'}
+              disabled
               onChange={(currency) => setBreakEditor({ ...breakEditor, currency })}
             />
-            {breakEditor.kind === 'customer' && (
-              <Text size="xs" c="dimmed">
-                Customer tiers use the currency configured on their price list.
-              </Text>
-            )}{' '}
-            {breakEditor.kind === 'purchase' && (
-              <Text size="xs" c="dimmed">
-                Purchase tiers use the currency configured on their vendor price list.
-              </Text>
-            )}
+            <Text size="xs" c="dimmed">
+              Customer tiers use the currency configured on their price list.
+            </Text>
             <Group justify="flex-end">
               <Button variant="default" onClick={() => setBreakEditor(null)}>
                 Cancel

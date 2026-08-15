@@ -73,12 +73,11 @@ def sync_part_sale_prices(part_id: int, *, force: bool = False) -> dict:
 
     policy, _ = PartPricingPolicy.objects.get_or_create(part=part)
 
-    if not policy.sync_native_sale and not force:
-        return {
-            "status": "disabled",
-            "breaks": PartSellPriceBreak.objects.filter(part=part).count(),
-            "currency": resolved_sync_currency(policy),
-        }
+    # Customer pricing is always authoritative. Older releases allowed this
+    # switch to be disabled; normalize any retained policy during the next sync.
+    if not policy.sync_native_sale:
+        policy.sync_native_sale = True
+        policy.save(update_fields=["sync_native_sale"])
 
     target_currency = resolved_sync_currency(policy)
 
