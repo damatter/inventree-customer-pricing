@@ -57,13 +57,13 @@ reviewed before allowing a future InvenTree 1.4 release.
 In **Admin Center → Plugins → Install Plugin**, use:
 
 - Package name: `inventree-customer-pricing`
-- Source URL: `git+https://github.com/damatter/inventree-customer-pricing.git@0.3.2`
+- Source URL: `git+https://github.com/damatter/inventree-customer-pricing.git@0.4.0`
 - Version: leave blank (the release is pinned in the source URL)
 
 The equivalent `plugins.txt` entry is:
 
 ```text
-inventree-customer-pricing @ git+https://github.com/damatter/inventree-customer-pricing.git@0.3.2
+inventree-customer-pricing @ git+https://github.com/damatter/inventree-customer-pricing.git@0.4.0
 ```
 
 Then:

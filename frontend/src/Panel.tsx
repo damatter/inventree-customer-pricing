@@ -425,7 +425,10 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
       return [];
     }
 
-    const currentCustomer = listEditor?.record?.customer;
+    const selectedCustomer = Number(listEditor?.customer);
+    const currentCustomer =
+      listEditor?.record?.customer ??
+      (Number.isFinite(selectedCustomer) ? selectedCustomer : undefined);
     const used = new Set(
       data.customer_lists
         .filter((priceList) => priceList.customer !== currentCustomer)
@@ -461,23 +464,28 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
       return;
     }
 
+    const editor = listEditor;
     const payload = {
-      customer: Number(listEditor.customer),
-      currency: listEditor.currency,
-      active: listEditor.active,
-      notes: listEditor.notes
+      customer: Number(editor.customer),
+      currency: editor.currency,
+      active: editor.active,
+      notes: editor.notes
     };
-    const url = listEditor.record
-      ? `${apiBase}/customer-lists/${listEditor.record.pk}/`
+    const url = editor.record
+      ? `${apiBase}/customer-lists/${editor.record.pk}/`
       : `${apiBase}/customer-lists/`;
 
-    await request(
-      listEditor.record ? 'patch' : 'post',
-      url,
-      payload,
-      listEditor.record ? 'Customer price list saved.' : 'Customer price list created.'
-    );
     setListEditor(null);
+    try {
+      await request(
+        editor.record ? 'patch' : 'post',
+        url,
+        payload,
+        editor.record ? 'Customer price list saved.' : 'Customer price list created.'
+      );
+    } catch {
+      setListEditor(editor);
+    }
   };
 
   const openNewVendor = () => {
@@ -1295,6 +1303,12 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
       >
         {listEditor && (
           <Stack>
+            {availableCustomers.length === 0 && !listEditor.record && (
+              <Alert color="yellow" title="No available customers">
+                Add or activate a customer in InvenTree, or remove its existing schedule for this
+                part.
+              </Alert>
+            )}
             <Select
               label="Customer"
               placeholder="Choose a customer"
@@ -1345,7 +1359,14 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
               <Button variant="default" onClick={() => setListEditor(null)}>
                 Cancel
               </Button>
-              <Button onClick={saveList} disabled={!listEditor.customer || !listEditor.currency}>
+              <Button
+                onClick={saveList}
+                disabled={
+                  !listEditor.customer ||
+                  !listEditor.currency ||
+                  (!listEditor.record && availableCustomers.length === 0)
+                }
+              >
                 Save price list
               </Button>
             </Group>

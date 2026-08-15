@@ -9,9 +9,9 @@
     "lint:fix": "npx @biomejs/biome check ./src --write"
   },
   "dependencies": {
-    "@mantine/core": ">=9.2.1",
-    "@mantine/hooks": ">=9.2.1",
-    "@mantine/notifications": ">=9.2.1",
+    "@mantine/core": "^8.2.7",
+    "@mantine/hooks": "^8.2.7",
+    "@mantine/notifications": "^8.2.7",
     "react": ">=19.2.4",
     "react-dom": ">=19.2.4"
   },

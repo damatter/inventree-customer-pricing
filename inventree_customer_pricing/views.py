@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 from company.models import Company
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from djmoney.money import Money
 from moneyed import CURRENCIES
@@ -225,6 +225,19 @@ class PricingWorkspaceView(PricingAPIView):
                     "material_cost_detail": (
                         f"/plugin/customer-pricing/part/{part.pk}/material-costs/{{pk}}/"
                     ),
+                    "customer_list_collection": (
+                        f"/plugin/customer-pricing/part/{part.pk}/customer-lists/"
+                    ),
+                    "customer_list_detail": (
+                        f"/plugin/customer-pricing/part/{part.pk}/customer-lists/{{pk}}/"
+                    ),
+                    "customer_break_collection": (
+                        f"/plugin/customer-pricing/part/{part.pk}/"
+                        "customer-lists/{list_pk}/breaks/"
+                    ),
+                    "customer_break_detail": (
+                        f"/plugin/customer-pricing/part/{part.pk}/customer-breaks/{{pk}}/"
+                    ),
                 },
             }
         )
@@ -395,7 +408,13 @@ class CustomerPriceListCollectionView(PricingAPIView):
         part = get_object_or_404(Part, pk=part_id)
         serializer = CustomerPriceListSerializer(data=request.data, context={"part": part})
         serializer.is_valid(raise_exception=True)
-        price_list = serializer.save(part=part)
+        try:
+            with transaction.atomic():
+                price_list = serializer.save(part=part)
+        except IntegrityError as exc:
+            raise serializers.ValidationError(
+                {"customer": "This customer already has a price list for the part."}
+            ) from exc
         return Response(
             CustomerPriceListSerializer(price_list).data, status=status.HTTP_201_CREATED
         )

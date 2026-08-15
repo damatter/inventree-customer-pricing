@@ -133,6 +133,18 @@ def test_views_accept_the_pre_030_currency_converter_name():
     assert "_convert_amount as convert_amount" in source
 
 
+def test_workspace_advertises_customer_write_endpoints_for_mobile_clients():
+    """Native clients should not need to reconstruct customer API routes."""
+
+    source = (PACKAGE_ROOT / "views.py").read_text(encoding="utf-8")
+
+    assert '"customer_list_collection"' in source
+    assert '"customer_list_detail"' in source
+    assert '"customer_break_collection"' in source
+    assert '"customer_break_detail"' in source
+    assert '"customer-lists/{list_pk}/breaks/"' in source
+
+
 def test_admin_registration_is_safe_to_reload(monkeypatch):
     """InvenTree can reload admin.py when only some models remain registered."""
 
