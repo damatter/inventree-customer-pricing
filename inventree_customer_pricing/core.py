@@ -16,7 +16,7 @@ class CustomerPricingPlugin(
     TITLE = "Part Pricing"
     NAME = "CustomerPricingPlugin"
     SLUG = "customer-pricing"
-    DESCRIPTION = "Manage material costs, purchasing, sale pricing, and customer margins per part."
+    DESCRIPTION = "Manage material costs, customer pricing, and margins per part."
     VERSION = PLUGIN_VERSION
     AUTHOR = "Matt Dick"
     WEBSITE = "https://github.com/damatter/inventree-customer-pricing"
@@ -93,7 +93,7 @@ class CustomerPricingPlugin(
             {
                 "key": "part-pricing-workspace",
                 "title": _("Part Pricing"),
-                "description": _("Material costs, purchasing, sale pricing, and customer margins"),
+                "description": _("Material costs, customer schedules, and profit margins"),
                 "icon": "ti:currency-dollar:outline",
                 "source": self.plugin_static_file("Panel.js:RenderCustomerPricingPluginPanel"),
                 "options": self.mobile_app_options(
@@ -129,7 +129,7 @@ class CustomerPricingPlugin(
             {
                 "key": "part-pricing-overview",
                 "title": _("Part Pricing"),
-                "description": _("Material costs, customer schedules, and vendor pricing"),
+                "description": _("Material costs, customer schedules, and profit margins"),
                 "icon": "ti:currency-dollar:outline",
                 "source": self.plugin_static_file("Panel.js:RenderPartPricingDashboard"),
                 "options": {

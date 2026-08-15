@@ -1,7 +1,7 @@
 # InvenTree Part Pricing
 
-An InvenTree 1.3.x plugin for managing material costs, purchase pricing, native
-sale pricing, customer-specific price breaks, and gross margin from each part.
+An InvenTree 1.3.x plugin for managing material costs, customer-specific price
+breaks, and gross margin from each part.
 
 The Python package, plugin slug, and Django app label intentionally retain the
 `customer-pricing` name so existing installations, database tables, backups, and
@@ -17,9 +17,6 @@ migrations continue to work without data remapping.
 - A separate price list for each customer, with independent quantity breaks,
   currency, notes, and active / paused state.
 - Automatic synchronization to InvenTree's native sale-price breaks.
-- Vendor quote comparison with optional SKU, order link, lead time and quantity breaks.
-- No native supplier, manufacturer or purchase-order setup required.
-- Manual native sale-price editing when automatic synchronization is disabled.
 - A fail-closed access-group gate plus InvenTree sales and purchase role enforcement.
 - Atomic synchronization and visible error reporting for missing currency rates.
 
@@ -57,13 +54,13 @@ reviewed before allowing a future InvenTree 1.4 release.
 In **Admin Center → Plugins → Install Plugin**, use:
 
 - Package name: `inventree-customer-pricing`
-- Source URL: `git+https://github.com/damatter/inventree-customer-pricing.git@0.5.0`
+- Source URL: `git+https://github.com/damatter/inventree-customer-pricing.git@0.6.0`
 - Version: leave blank (the release is pinned in the source URL)
 
 The equivalent `plugins.txt` entry is:
 
 ```text
-inventree-customer-pricing @ git+https://github.com/damatter/inventree-customer-pricing.git@0.5.0
+inventree-customer-pricing @ git+https://github.com/damatter/inventree-customer-pricing.git@0.6.0
 ```
 
 Then:
@@ -84,22 +81,23 @@ Open a part and select **Part Pricing**.
 
 - **Material costs** records every material input used by one part.
 - **Customer pricing** creates customer schedules and quantity breaks.
-- **Sale pricing** controls the native synchronization currency and shows the
-  generated InvenTree sale-price rows.
-- **Purchase pricing** stores lightweight vendor options and quantity breaks directly against the part.
 
-When automatic synchronization is on, the native sale-price rows are read-only in
-this plugin. Disable synchronization to manage those rows manually. Re-enabling it
-immediately replaces them with the highest-price customer envelope.
+Customer pricing is always authoritative. Every customer-list or quantity-break
+change atomically replaces InvenTree's native sale-price rows with the
+highest-price customer envelope.
 
 ## Data storage
 
-Material entries plus customer and vendor schedules are stored in plugin-owned tables
-in the same InvenTree database. Sale-price synchronization writes only the highest
+Material entries and customer schedules are stored in plugin-owned tables in the
+same InvenTree database. Sale-price synchronization writes only the highest
 customer-price envelope to InvenTree's native sale-price rows. Margin values are
 derived from stored material and selling prices, so duplicated calculated values
-cannot become stale. Simple vendor data does not create Supplier, Manufacturer,
-Supplier Part, SKU, Purchase Order, or StockItem records.
+cannot become stale.
+
+Version 0.6.0 removes sale-price editing and vendor purchasing from the plugin
+interface and public URL map. Existing vendor rows and migration history are
+deliberately retained in the database so upgrades, backups, restores, and rollback
+remain lossless; the plugin simply stops exposing those archived records.
 
 ## Migrations, backup, and restore
 
@@ -127,10 +125,9 @@ docker compose up -d
 - The plugin's **Pricing access group** is the outer security boundary. If it is not
   configured, access fails closed and only superusers can discover or call Part Pricing.
 - A non-superuser must be a member of that group *and* have the applicable InvenTree role.
-- Sales-order `view` is required to see customer and sale pricing.
-- Sales-order `change` is required to edit customer pricing, native sale pricing,
-  or synchronization settings.
-- Purchase-order `view` / `change` controls the simple purchasing section.
+- Sales-order `view` / `change` controls customer schedules and quantity breaks.
+- Purchase-order `view` / `change` controls material-cost rows.
+- Native sale-price synchronization is automatic and has no user-facing disable switch.
 - Superusers retain full access.
 
 See [SECURITY.md](SECURITY.md) for the code-level exposure review and deployment checklist.

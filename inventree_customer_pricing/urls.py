@@ -32,7 +32,6 @@ urlpatterns = [
         lazy_api_view("MaterialCostDetailView"),
         name="material-cost-detail",
     ),
-    path("part/<int:part_id>/policy/", lazy_api_view("PricingPolicyView"), name="policy"),
     path("part/<int:part_id>/sync/", lazy_api_view("PricingSyncView"), name="sync"),
     path(
         "part/<int:part_id>/customer-lists/",
@@ -53,35 +52,5 @@ urlpatterns = [
         "part/<int:part_id>/customer-breaks/<int:pk>/",
         lazy_api_view("CustomerPriceBreakDetailView"),
         name="customer-break-detail",
-    ),
-    path(
-        "part/<int:part_id>/sale-breaks/",
-        lazy_api_view("NativeSaleBreakCollectionView"),
-        name="sale-break-create",
-    ),
-    path(
-        "part/<int:part_id>/sale-breaks/<int:pk>/",
-        lazy_api_view("NativeSaleBreakDetailView"),
-        name="sale-break-detail",
-    ),
-    path(
-        "part/<int:part_id>/vendor-lists/",
-        lazy_api_view("VendorPriceListCollectionView"),
-        name="vendor-list-create",
-    ),
-    path(
-        "part/<int:part_id>/vendor-lists/<int:pk>/",
-        lazy_api_view("VendorPriceListDetailView"),
-        name="vendor-list-detail",
-    ),
-    path(
-        "part/<int:part_id>/vendor-lists/<int:price_list_id>/breaks/",
-        lazy_api_view("VendorPriceBreakCollectionView"),
-        name="vendor-break-create",
-    ),
-    path(
-        "part/<int:part_id>/vendor-breaks/<int:pk>/",
-        lazy_api_view("VendorPriceBreakDetailView"),
-        name="vendor-break-detail",
     ),
 ]

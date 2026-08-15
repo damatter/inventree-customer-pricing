@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inventree-customer-pricing"
-description = "Per-part material costs, purchasing, customer pricing, and margin analysis for InvenTree"
+description = "Per-part material costs, customer pricing, and margin analysis for InvenTree"
 dynamic = ["version"]
 authors = [{ name = "Matt Dick" }]
 readme = "README.md"

@@ -149,6 +149,17 @@ def test_workspace_advertises_customer_write_endpoints_for_mobile_clients():
     assert '"customer-lists/{list_pk}/breaks/"' in source
 
 
+def test_archived_sale_and_vendor_edit_routes_are_not_public():
+    """Removed pricing workflows must not remain callable through plugin URLs."""
+
+    source = (PACKAGE_ROOT / "urls.py").read_text(encoding="utf-8")
+
+    assert "sale-breaks" not in source
+    assert "vendor-lists" not in source
+    assert "vendor-breaks" not in source
+    assert "part/<int:part_id>/policy/" not in source
+
+
 def test_admin_registration_is_safe_to_reload(monkeypatch):
     """InvenTree can reload admin.py when only some models remain registered."""
 
@@ -211,7 +222,6 @@ def test_admin_registration_is_safe_to_reload(monkeypatch):
         models_module.MaterialCostEntry,
         models_module.CustomerPriceList,
         models_module.PartPricingPolicy,
-        models_module.VendorPriceList,
     }
 
     sys.modules.pop("inventree_customer_pricing.admin", None)
