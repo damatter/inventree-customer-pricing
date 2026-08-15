@@ -28,7 +28,7 @@ def resolved_sync_currency(policy: PartPricingPolicy | None) -> str:
     return (configured or currency_code_default()).upper()
 
 
-def _convert_amount(amount: Decimal, source: str, target: str) -> Decimal:
+def convert_amount(amount: Decimal, source: str, target: str) -> Decimal:
     """Convert a unit-price amount using InvenTree's configured exchange rates."""
 
     if source.upper() == target.upper():
@@ -84,19 +84,21 @@ def sync_part_sale_prices(part_id: int, *, force: bool = False) -> dict:
 
     try:
         envelope = build_highest_price_envelope(
-            _customer_schedules(part_id), target_currency, _convert_amount
+            _customer_schedules(part_id), target_currency, convert_amount
         )
 
         with transaction.atomic():
             PartSellPriceBreak.objects.filter(part=part).delete()
-            PartSellPriceBreak.objects.bulk_create([
-                PartSellPriceBreak(
-                    part=part,
-                    quantity=point.quantity,
-                    price=Money(point.price, target_currency),
-                )
-                for point in envelope
-            ])
+            PartSellPriceBreak.objects.bulk_create(
+                [
+                    PartSellPriceBreak(
+                        part=part,
+                        quantity=point.quantity,
+                        price=Money(point.price, target_currency),
+                    )
+                    for point in envelope
+                ]
+            )
 
             policy.last_synced = timezone.now()
             policy.last_sync_error = ""

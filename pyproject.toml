@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inventree-customer-pricing"
-description = "Customer-specific pricing and native pricing synchronization for InvenTree"
+description = "Per-part material costs, purchasing, customer pricing, and margin analysis for InvenTree"
 dynamic = ["version"]
 authors = [{ name = "Matt Dick" }]
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-keywords = ["inventree", "plugin", "pricing", "customer-pricing"]
+keywords = ["inventree", "plugin", "pricing", "material-cost", "profit-margin"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Framework :: InvenTree",

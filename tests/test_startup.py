@@ -84,9 +84,41 @@ def test_entry_point_imports_without_registered_models(monkeypatch):
     imported = importlib.import_module("inventree_customer_pricing.core")
 
     assert imported.CustomerPricingPlugin.SLUG == "customer-pricing"
+    assert imported.CustomerPricingPlugin.TITLE == "Part Pricing"
     assert "part.models" not in sys.modules
     assert "users.permissions" not in sys.modules
     assert "inventree_customer_pricing.models" not in sys.modules
     assert "inventree_customer_pricing.views" not in sys.modules
 
     sys.modules.pop("inventree_customer_pricing.core", None)
+
+
+def test_database_identity_and_migration_chain_remain_stable():
+    """Backups and upgrades rely on a stable app label and linear migrations."""
+
+    apps_source = (PACKAGE_ROOT / "apps.py").read_text(encoding="utf-8")
+    migration_source = (PACKAGE_ROOT / "migrations" / "0003_material_cost_entries.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'name = "inventree_customer_pricing"' in apps_source
+    assert '("inventree_customer_pricing", "0002_simple_vendor_pricing")' in migration_source
+    assert 'name="MaterialCostEntry"' in migration_source
+    assert "material_cost_quantity_positive" in migration_source
+    assert "material_cost_unit_cost_nonnegative" in migration_source
+
+
+def test_mobile_contract_is_versioned_and_authenticated_by_plugin_routes():
+    """The mobile feature convention must remain explicit and versioned."""
+
+    from inventree_customer_pricing.mobile import MobileAppMixin
+
+    options = MobileAppMixin.mobile_app_options("part-pricing-v1", "/plugin/test/{pk}/")
+
+    assert options == {
+        "mobile": {
+            "schema_version": 1,
+            "renderer": "part-pricing-v1",
+            "endpoint": "/plugin/test/{pk}/",
+        }
+    }

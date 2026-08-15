@@ -5,10 +5,20 @@ from django.contrib import admin
 from .models import (
     CustomerPriceBreak,
     CustomerPriceList,
+    MaterialCostEntry,
     PartPricingPolicy,
     VendorPriceBreak,
     VendorPriceList,
 )
+
+
+@admin.register(MaterialCostEntry)
+class MaterialCostEntryAdmin(admin.ModelAdmin):
+    """Material cost rows stored against each part."""
+
+    list_display = ("part", "name", "quantity", "unit_cost", "currency", "active", "updated")
+    list_filter = ("active", "currency")
+    search_fields = ("part__name", "part__IPN", "name", "notes")
 
 
 class CustomerPriceBreakInline(admin.TabularInline):

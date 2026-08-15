@@ -31,7 +31,7 @@ type PricingPluginContext = {
   locale: string;
   theme: { primaryColor: string };
   api: {
-    get: (url: string) => Promise<{ data: WorkspaceData }>;
+    get: <T = WorkspaceData>(url: string) => Promise<{ data: T }>;
     request: (config: {
       method: 'post' | 'patch' | 'delete';
       url: string;
@@ -49,6 +49,9 @@ type NativeBreak = {
 
 type CustomerBreak = NativeBreak & {
   price_list: number;
+  material_cost: string | null;
+  profit_amount: string | null;
+  profit_margin_percent: string | null;
 };
 
 type CustomerPriceList = {
@@ -59,6 +62,10 @@ type CustomerPriceList = {
   currency: string;
   active: boolean;
   notes: string;
+  material_cost: string | null;
+  base_selling_price: string | null;
+  profit_amount: string | null;
+  profit_margin_percent: string | null;
   breaks: CustomerBreak[];
   created: string;
   updated: string;
@@ -80,6 +87,18 @@ type VendorPriceList = {
   preferred: boolean;
   notes: string;
   breaks: VendorPriceBreak[];
+};
+
+type MaterialCostEntry = {
+  pk: number;
+  part: number;
+  name: string;
+  quantity: string;
+  unit_cost: string;
+  currency: string;
+  total_cost: string;
+  active: boolean;
+  notes: string;
 };
 
 type WorkspaceData = {
@@ -107,6 +126,9 @@ type WorkspaceData = {
   customers: { pk: number; name: string; currency: string }[];
   native_sale_breaks: NativeBreak[];
   vendor_lists: VendorPriceList[];
+  material_costs: MaterialCostEntry[];
+  material_cost_summary: { currency: string; total: string }[];
+  material_cost_errors: Record<string, string>;
   currencies: string[];
 };
 
@@ -127,6 +149,16 @@ type VendorEditorState = {
   leadTimeDays: string | number;
   active: boolean;
   preferred: boolean;
+  notes: string;
+};
+
+type MaterialEditorState = {
+  record?: MaterialCostEntry;
+  name: string;
+  quantity: string | number;
+  unitCost: string | number;
+  currency: string | null;
+  active: boolean;
   notes: string;
 };
 
@@ -219,6 +251,7 @@ function BreakTable({
   currency,
   locale,
   editable,
+  showMargin = false,
   onEdit,
   onDelete
 }: {
@@ -226,6 +259,7 @@ function BreakTable({
   currency: string;
   locale: string;
   editable: boolean;
+  showMargin?: boolean;
   onEdit: (record: NativeBreak | CustomerBreak) => void;
   onDelete: (record: NativeBreak | CustomerBreak) => void;
 }) {
@@ -244,33 +278,58 @@ function BreakTable({
           <Table.Tr>
             <Table.Th>Minimum quantity</Table.Th>
             <Table.Th>Unit price</Table.Th>
+            {showMargin && <Table.Th>Material cost</Table.Th>}
+            {showMargin && <Table.Th>Gross profit</Table.Th>}
+            {showMargin && <Table.Th>Margin</Table.Th>}
             {editable && <Table.Th ta="right">Actions</Table.Th>}
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {records.map((record) => (
-            <Table.Tr key={record.pk}>
-              <Table.Td fw={600}>{formatQuantity(record.quantity)}</Table.Td>
-              <Table.Td>{formatMoney(record.price, record.currency || currency, locale)}</Table.Td>
-              {editable && (
+          {records.map((record) => {
+            const customerRecord = record as CustomerBreak;
+            return (
+              <Table.Tr key={record.pk}>
+                <Table.Td fw={600}>{formatQuantity(record.quantity)}</Table.Td>
                 <Table.Td>
-                  <Group gap="xs" justify="flex-end" wrap="nowrap">
-                    <Button size="compact-xs" variant="subtle" onClick={() => onEdit(record)}>
-                      Edit
-                    </Button>
-                    <Button
-                      size="compact-xs"
-                      variant="subtle"
-                      color="red"
-                      onClick={() => onDelete(record)}
-                    >
-                      Delete
-                    </Button>
-                  </Group>
+                  {formatMoney(record.price, record.currency || currency, locale)}
                 </Table.Td>
-              )}
-            </Table.Tr>
-          ))}
+                {showMargin && (
+                  <Table.Td>
+                    {formatMoney(customerRecord.material_cost, record.currency || currency, locale)}
+                  </Table.Td>
+                )}
+                {showMargin && (
+                  <Table.Td>
+                    {formatMoney(customerRecord.profit_amount, record.currency || currency, locale)}
+                  </Table.Td>
+                )}
+                {showMargin && (
+                  <Table.Td>
+                    {customerRecord.profit_margin_percent === null
+                      ? '\u2014'
+                      : `${Number(customerRecord.profit_margin_percent).toFixed(1)}%`}
+                  </Table.Td>
+                )}
+                {editable && (
+                  <Table.Td>
+                    <Group gap="xs" justify="flex-end" wrap="nowrap">
+                      <Button size="compact-xs" variant="subtle" onClick={() => onEdit(record)}>
+                        Edit
+                      </Button>
+                      <Button
+                        size="compact-xs"
+                        variant="subtle"
+                        color="red"
+                        onClick={() => onDelete(record)}
+                      >
+                        Delete
+                      </Button>
+                    </Group>
+                  </Table.Td>
+                )}
+              </Table.Tr>
+            );
+          })}
         </Table.Tbody>
       </Table>
     </ScrollArea>
@@ -287,6 +346,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
   const [error, setError] = useState<string | null>(null);
   const [listEditor, setListEditor] = useState<ListEditorState | null>(null);
   const [vendorEditor, setVendorEditor] = useState<VendorEditorState | null>(null);
+  const [materialEditor, setMaterialEditor] = useState<MaterialEditorState | null>(null);
   const [breakEditor, setBreakEditor] = useState<BreakEditorState | null>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
 
@@ -348,6 +408,17 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
     () => data?.customer_lists.reduce((sum, priceList) => sum + priceList.breaks.length, 0) ?? 0,
     [data]
   );
+
+  const resolvedMaterialTotal = useMemo(() => {
+    if (!data) {
+      return null;
+    }
+    return (
+      data.material_cost_summary.find(
+        (summary) => summary.currency === data.policy.resolved_currency
+      )?.total ?? null
+    );
+  }, [data]);
 
   const availableCustomers = useMemo(() => {
     if (!data) {
@@ -464,6 +535,75 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
     setVendorEditor(null);
   };
 
+  const openNewMaterial = () => {
+    setMaterialEditor({
+      name: '',
+      quantity: 1,
+      unitCost: '',
+      currency: data?.policy.resolved_currency ?? 'USD',
+      active: true,
+      notes: ''
+    });
+  };
+
+  const openEditMaterial = (record: MaterialCostEntry) => {
+    setMaterialEditor({
+      record,
+      name: record.name,
+      quantity: record.quantity,
+      unitCost: record.unit_cost,
+      currency: record.currency,
+      active: record.active,
+      notes: record.notes
+    });
+  };
+
+  const saveMaterial = async () => {
+    if (
+      !materialEditor?.name.trim() ||
+      materialEditor.quantity === '' ||
+      materialEditor.unitCost === '' ||
+      !materialEditor.currency
+    ) {
+      return;
+    }
+
+    const payload = {
+      name: materialEditor.name.trim(),
+      quantity: materialEditor.quantity,
+      unit_cost: materialEditor.unitCost,
+      currency: materialEditor.currency,
+      active: materialEditor.active,
+      notes: materialEditor.notes
+    };
+    const url = materialEditor.record
+      ? `${apiBase}/material-costs/${materialEditor.record.pk}/`
+      : `${apiBase}/material-costs/`;
+
+    await request(
+      materialEditor.record ? 'patch' : 'post',
+      url,
+      payload,
+      materialEditor.record ? 'Material cost saved.' : 'Material cost added.'
+    );
+    setMaterialEditor(null);
+  };
+
+  const askDeleteMaterial = (record: MaterialCostEntry) => {
+    setConfirmation({
+      title: 'Delete material cost?',
+      message: `This removes ${record.name} from the material cost and margin calculations.`,
+      action: async () => {
+        await request(
+          'delete',
+          `${apiBase}/material-costs/${record.pk}/`,
+          undefined,
+          'Material cost deleted.'
+        );
+      }
+    });
+  };
+
   const askDeleteVendor = (record: VendorPriceList) => {
     setConfirmation({
       title: 'Delete vendor pricing?',
@@ -566,7 +706,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
     await request('patch', `${apiBase}/policy/`, payload, 'Synchronization policy saved.');
   };
 
-  const defaultTab = data?.permissions.view_sales ? 'customers' : 'purchase';
+  const defaultTab = data?.permissions.view_purchase ? 'materials' : 'customers';
 
   if (loading) {
     return (
@@ -578,7 +718,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
 
   if (error || !data) {
     return (
-      <Alert color="red" title="Customer Pricing could not load">
+      <Alert color="red" title="Part Pricing could not load">
         {error || 'No pricing data was returned.'}
       </Alert>
     );
@@ -612,32 +752,127 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
         </Group>
       </Paper>
 
-      {data.permissions.view_sales && (
-        <SimpleGrid cols={{ base: 1, sm: 3 }}>
-          <MetricCard
-            label="Priced customers"
-            value={String(data.customer_lists.length)}
-            detail={`${data.customer_lists.filter((priceList) => priceList.active).length} active schedules`}
-          />
-          <MetricCard
-            label="Customer tiers"
-            value={String(customerTierCount)}
-            detail="Across all customer schedules"
-          />
-          <MetricCard
-            label="Native sale tiers"
-            value={String(data.native_sale_breaks.length)}
-            detail={`Synchronized in ${data.policy.resolved_currency}`}
-          />
+      {(data.permissions.view_sales || data.permissions.view_purchase) && (
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+          {data.permissions.view_purchase && (
+            <MetricCard
+              label="Material cost"
+              value={formatMoney(
+                resolvedMaterialTotal,
+                data.policy.resolved_currency,
+                context.locale
+              )}
+              detail={`${data.material_costs.filter((entry) => entry.active).length} active material entries`}
+            />
+          )}
+          {data.permissions.view_sales && (
+            <MetricCard
+              label="Priced customers"
+              value={String(data.customer_lists.length)}
+              detail={`${data.customer_lists.filter((priceList) => priceList.active).length} active schedules`}
+            />
+          )}
+          {data.permissions.view_sales && (
+            <MetricCard
+              label="Customer tiers"
+              value={String(customerTierCount)}
+              detail="Across all customer schedules"
+            />
+          )}
+          {data.permissions.view_sales && (
+            <MetricCard
+              label="Native sale tiers"
+              value={String(data.native_sale_breaks.length)}
+              detail={`Synchronized in ${data.policy.resolved_currency}`}
+            />
+          )}
         </SimpleGrid>
       )}
 
       <Tabs defaultValue={defaultTab} keepMounted={false}>
         <Tabs.List>
+          {data.permissions.view_purchase && <Tabs.Tab value="materials">Material costs</Tabs.Tab>}
           {data.permissions.view_sales && <Tabs.Tab value="customers">Customer pricing</Tabs.Tab>}
           {data.permissions.view_sales && <Tabs.Tab value="sale">Sale pricing</Tabs.Tab>}
           {data.permissions.view_purchase && <Tabs.Tab value="purchase">Purchase pricing</Tabs.Tab>}
         </Tabs.List>
+
+        {data.permissions.view_purchase && (
+          <Tabs.Panel value="materials" pt="lg">
+            <Stack gap="md">
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={2}>
+                  <Text fw={700}>Materials used per part</Text>
+                  <Text size="sm" c="dimmed">
+                    Add one row for each material input. Quantity × unit cost is included in every
+                    customer margin automatically.
+                  </Text>
+                </Stack>
+                {data.permissions.change_purchase && (
+                  <Button onClick={openNewMaterial}>Add material</Button>
+                )}
+              </Group>
+
+              {Object.values(data.material_cost_errors).map((message) => (
+                <Alert key={message} color="orange" title="Currency conversion unavailable">
+                  {message}
+                </Alert>
+              ))}
+
+              {data.material_costs.length === 0 ? (
+                <EmptyState
+                  title="No material costs yet"
+                  message="Add a material name, quantity and unit cost to start calculating margins."
+                />
+              ) : (
+                data.material_costs.map((material) => (
+                  <Card key={material.pk} withBorder radius="md" padding="lg">
+                    <Group justify="space-between" align="flex-start">
+                      <Stack gap={3}>
+                        <Group gap="xs">
+                          <Text fw={750}>{material.name}</Text>
+                          {!material.active && <Badge color="gray">Paused</Badge>}
+                          <Badge variant="outline">{material.currency}</Badge>
+                        </Group>
+                        <Text size="sm">
+                          {formatQuantity(material.quantity)} ×{' '}
+                          {formatMoney(material.unit_cost, material.currency, context.locale)} ={' '}
+                          <strong>
+                            {formatMoney(material.total_cost, material.currency, context.locale)}
+                          </strong>
+                        </Text>
+                        {material.notes && (
+                          <Text size="sm" c="dimmed">
+                            {material.notes}
+                          </Text>
+                        )}
+                      </Stack>
+                      {data.permissions.change_purchase && (
+                        <Group gap="xs">
+                          <Button
+                            size="xs"
+                            variant="default"
+                            onClick={() => openEditMaterial(material)}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            size="xs"
+                            variant="default"
+                            color="red"
+                            onClick={() => askDeleteMaterial(material)}
+                          >
+                            Delete
+                          </Button>
+                        </Group>
+                      )}
+                    </Group>
+                  </Card>
+                ))
+              )}
+            </Stack>
+          </Tabs.Panel>
+        )}
 
         {data.permissions.view_sales && (
           <Tabs.Panel value="customers" pt="lg">
@@ -672,6 +907,28 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
                                 {priceList.active ? 'Active' : 'Paused'}
                               </Badge>
                               <Badge variant="outline">{priceList.currency}</Badge>
+                              {priceList.profit_amount !== null && (
+                                <Badge
+                                  color={Number(priceList.profit_amount) >= 0 ? 'teal' : 'red'}
+                                >
+                                  {formatMoney(
+                                    priceList.profit_amount,
+                                    priceList.currency,
+                                    context.locale
+                                  )}{' '}
+                                  profit
+                                </Badge>
+                              )}
+                              {priceList.profit_margin_percent !== null && (
+                                <Badge
+                                  color={
+                                    Number(priceList.profit_margin_percent) >= 0 ? 'teal' : 'red'
+                                  }
+                                  variant="light"
+                                >
+                                  {Number(priceList.profit_margin_percent).toFixed(1)}% margin
+                                </Badge>
+                              )}
                             </Group>
                             {priceList.notes && (
                               <Text size="sm" c="dimmed">
@@ -708,6 +965,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
                         currency={priceList.currency}
                         locale={context.locale}
                         editable={data.permissions.change_sales}
+                        showMargin
                         onEdit={(record) =>
                           openBreakEditor('customer', priceList.pk, priceList.currency, record)
                         }
@@ -948,6 +1206,86 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
           </Tabs.Panel>
         )}
       </Tabs>
+
+      <Modal
+        opened={materialEditor !== null}
+        onClose={() => setMaterialEditor(null)}
+        title={materialEditor?.record ? 'Edit material cost' : 'Add material cost'}
+        centered
+      >
+        {materialEditor && (
+          <Stack>
+            <TextInput
+              label="Material"
+              placeholder="e.g. Aluminum sheet"
+              required
+              autoFocus
+              value={materialEditor.name}
+              onChange={(event) =>
+                setMaterialEditor({ ...materialEditor, name: event.currentTarget.value })
+              }
+            />
+            <SimpleGrid cols={2}>
+              <NumberInput
+                label="Quantity per part"
+                required
+                min={0.00001}
+                decimalScale={5}
+                value={materialEditor.quantity}
+                onChange={(quantity) => setMaterialEditor({ ...materialEditor, quantity })}
+              />
+              <NumberInput
+                label="Unit cost"
+                required
+                min={0}
+                decimalScale={6}
+                value={materialEditor.unitCost}
+                onChange={(unitCost) => setMaterialEditor({ ...materialEditor, unitCost })}
+              />
+            </SimpleGrid>
+            <Select
+              label="Currency"
+              searchable
+              required
+              data={data.currencies}
+              value={materialEditor.currency}
+              onChange={(currency) => setMaterialEditor({ ...materialEditor, currency })}
+            />
+            <Checkbox
+              label="Include in material cost and margin calculations"
+              checked={materialEditor.active}
+              onChange={(event) =>
+                setMaterialEditor({ ...materialEditor, active: event.currentTarget.checked })
+              }
+            />
+            <Textarea
+              label="Notes"
+              placeholder="Optional grade, size, source, or calculation note"
+              minRows={2}
+              value={materialEditor.notes}
+              onChange={(event) =>
+                setMaterialEditor({ ...materialEditor, notes: event.currentTarget.value })
+              }
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setMaterialEditor(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={saveMaterial}
+                disabled={
+                  !materialEditor.name.trim() ||
+                  materialEditor.quantity === '' ||
+                  materialEditor.unitCost === '' ||
+                  !materialEditor.currency
+                }
+              >
+                Save material
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
 
       <Modal
         opened={listEditor !== null}
@@ -1194,4 +1532,73 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
 
 export function RenderCustomerPricingPluginPanel(context: PricingPluginContext) {
   return <CustomerPricingPanel context={context} />;
+}
+
+type MobileSummary = {
+  title: string;
+  description: string;
+  sections: {
+    title: string;
+    items: { label: string; value: string; detail?: string }[];
+  }[];
+};
+
+function PartPricingDashboard({ context }: { context: PricingPluginContext }) {
+  const [summary, setSummary] = useState<MobileSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    context.api
+      .get<MobileSummary>('/plugin/customer-pricing/mobile/dashboard/')
+      .then((response) => setSummary(response.data))
+      .catch((requestError) => setError(apiErrorMessage(requestError)));
+  }, [context.api]);
+
+  if (error) {
+    return (
+      <Alert color="red" title="Part Pricing could not load">
+        {error}
+      </Alert>
+    );
+  }
+
+  if (!summary) {
+    return (
+      <Paper pos="relative" mih={140}>
+        <LoadingOverlay visible />
+      </Paper>
+    );
+  }
+
+  const overview = summary.sections.find((section) => section.title === 'Overview');
+
+  return (
+    <Stack gap="sm">
+      <Stack gap={1}>
+        <Text fw={750}>{summary.title}</Text>
+        <Text size="sm" c="dimmed">
+          {summary.description}
+        </Text>
+      </Stack>
+      <SimpleGrid cols={{ base: 1, sm: 2 }}>
+        {overview?.items.map((item) => (
+          <Paper key={item.label} withBorder p="sm" radius="md">
+            <Text size="xs" c="dimmed">
+              {item.label}
+            </Text>
+            <Text fw={750} fz="xl">
+              {item.value}
+            </Text>
+          </Paper>
+        ))}
+      </SimpleGrid>
+      <Text size="xs" c="dimmed">
+        Open any part to edit material costs and view customer margins.
+      </Text>
+    </Stack>
+  );
+}
+
+export function RenderPartPricingDashboard(context: PricingPluginContext) {
+  return <PartPricingDashboard context={context} />;
 }

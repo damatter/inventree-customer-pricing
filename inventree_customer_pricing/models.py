@@ -1,5 +1,7 @@
 """Database models for customer-specific part pricing."""
 
+from decimal import Decimal
+
 from company.models import Company
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -37,6 +39,58 @@ class PartPricingPolicy(models.Model):
 
     def __str__(self):
         return f"Pricing policy for {self.part}"
+
+
+class MaterialCostEntry(models.Model):
+    """A single per-unit material input used to make a part."""
+
+    class Meta:
+        ordering = ["-active", "name", "pk"]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(quantity__gt=0), name="material_cost_quantity_positive"
+            ),
+            models.CheckConstraint(
+                check=models.Q(unit_cost__gte=0), name="material_cost_unit_cost_nonnegative"
+            ),
+        ]
+        verbose_name = _("Material Cost Entry")
+        verbose_name_plural = _("Material Cost Entries")
+
+    part = models.ForeignKey(
+        Part,
+        on_delete=models.CASCADE,
+        related_name="material_cost_entries",
+        verbose_name=_("Part"),
+    )
+    name = models.CharField(max_length=255, verbose_name=_("Material"))
+    quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=5,
+        default=1,
+        validators=[MinValueValidator(Decimal("0.00001"))],
+        verbose_name=_("Quantity per part"),
+    )
+    unit_cost = models.DecimalField(
+        max_digits=19,
+        decimal_places=6,
+        validators=[MinValueValidator(0)],
+        verbose_name=_("Unit cost"),
+    )
+    currency = models.CharField(max_length=3, verbose_name=_("Currency"))
+    active = models.BooleanField(default=True, verbose_name=_("Active"))
+    notes = models.TextField(blank=True, default="", verbose_name=_("Notes"))
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    @property
+    def total_cost(self):
+        """Return the extended per-part cost represented by this row."""
+
+        return self.quantity * self.unit_cost
+
+    def __str__(self):
+        return f"{self.name} for {self.part}"
 
 
 class CustomerPriceList(models.Model):

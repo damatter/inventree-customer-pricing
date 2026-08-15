@@ -2,6 +2,10 @@
 
 from decimal import Decimal
 
+from inventree_customer_pricing.costing import (
+    calculate_profit_margin,
+    material_line_total,
+)
 from inventree_customer_pricing.pricing import (
     PricePoint,
     PriceSchedule,
@@ -60,9 +64,7 @@ def test_prices_are_compared_after_currency_conversion():
 
 
 def test_unsorted_input_is_normalized():
-    schedules = [
-        PriceSchedule("USD", (point("25", "2"), point("1", "5"), point("10", "3")))
-    ]
+    schedules = [PriceSchedule("USD", (point("25", "2"), point("1", "5"), point("10", "3")))]
 
     result = build_highest_price_envelope(schedules, "USD", identity)
 
@@ -72,3 +74,34 @@ def test_unsorted_input_is_normalized():
 def test_empty_schedules_produce_empty_native_pricing():
     assert build_highest_price_envelope([], "USD", identity) == []
     assert build_highest_price_envelope([PriceSchedule("USD", ())], "USD", identity) == []
+
+
+def test_multiple_material_rows_add_to_a_per_part_cost():
+    totals = [
+        material_line_total(Decimal("2.5"), Decimal("4.00")),
+        material_line_total(Decimal("3"), Decimal("0.75")),
+    ]
+
+    assert sum(totals) == Decimal("12.25")
+
+
+def test_profit_margin_uses_selling_price_as_percentage_basis():
+    margin = calculate_profit_margin(Decimal("20"), Decimal("12.25"))
+
+    assert margin is not None
+    assert margin.amount == Decimal("7.75")
+    assert margin.percent == Decimal("38.7500")
+
+
+def test_profit_margin_can_show_a_loss():
+    margin = calculate_profit_margin(Decimal("10"), Decimal("12"))
+
+    assert margin is not None
+    assert margin.amount == Decimal("-2")
+    assert margin.percent == Decimal("-20.0")
+
+
+def test_profit_margin_requires_a_positive_selling_price_and_material_data():
+    assert calculate_profit_margin(None, Decimal("4")) is None
+    assert calculate_profit_margin(Decimal("4"), None) is None
+    assert calculate_profit_margin(Decimal("0"), Decimal("4")) is None

@@ -17,12 +17,14 @@ from users.permissions import check_user_role
 from .models import (
     CustomerPriceBreak,
     CustomerPriceList,
+    MaterialCostEntry,
     PartPricingPolicy,
     VendorPriceBreak,
     VendorPriceList,
 )
 from .native_sync import (
     CustomerPricingSyncError,
+    convert_amount,
     resolved_sync_currency,
     sync_part_sale_prices,
 )
@@ -30,6 +32,7 @@ from .serializers import (
     CurrencyField,
     CustomerPriceBreakSerializer,
     CustomerPriceListSerializer,
+    MaterialCostEntrySerializer,
     PartPricingPolicySerializer,
     VendorPriceBreakSerializer,
     VendorPriceListSerializer,
@@ -64,6 +67,28 @@ def _money_break(price_break) -> dict:
         "price": _decimal(price_break.price.amount) if price_break.price is not None else None,
         "currency": price_break.price.currency.code if price_break.price is not None else "",
     }
+
+
+def _material_costs_by_currency(part: Part, currencies: set[str]) -> tuple[dict, dict]:
+    """Convert all active material rows into each requested target currency."""
+
+    entries = list(MaterialCostEntry.objects.filter(part=part, active=True))
+    if not entries:
+        return {}, {}
+
+    totals = {}
+    errors = {}
+
+    for currency in sorted({code.upper() for code in currencies if code}):
+        try:
+            totals[currency] = sum(
+                (convert_amount(entry.total_cost, entry.currency, currency) for entry in entries),
+                Decimal("0"),
+            )
+        except CustomerPricingSyncError as exc:
+            errors[currency] = str(exc)
+
+    return totals, errors
 
 
 class PricingAPIView(APIView):
@@ -110,6 +135,7 @@ class PricingWorkspaceView(PricingAPIView):
         customer_lists = []
         customer_options = []
         native_sale_breaks = []
+        customer_queryset = CustomerPriceList.objects.none()
 
         if can_view_sales:
             customer_queryset = (
@@ -117,7 +143,6 @@ class PricingWorkspaceView(PricingAPIView):
                 .select_related("customer")
                 .prefetch_related("breaks")
             )
-            customer_lists = CustomerPriceListSerializer(customer_queryset, many=True).data
             customer_options = [
                 {
                     "pk": customer.pk,
@@ -134,9 +159,33 @@ class PricingWorkspaceView(PricingAPIView):
             ]
 
         vendor_lists = []
+        material_costs = []
+        material_cost_by_currency = {}
+        material_cost_errors = {}
+
         if can_view_purchase:
             vendor_queryset = VendorPriceList.objects.filter(part=part).prefetch_related("breaks")
             vendor_lists = VendorPriceListSerializer(vendor_queryset, many=True).data
+            material_queryset = MaterialCostEntry.objects.filter(part=part)
+            material_costs = MaterialCostEntrySerializer(material_queryset, many=True).data
+
+            requested_currencies = {policy_data["resolved_currency"]}
+            requested_currencies.update(customer_queryset.values_list("currency", flat=True))
+            material_cost_by_currency, material_cost_errors = _material_costs_by_currency(
+                part, requested_currencies
+            )
+
+        if can_view_sales:
+            customer_lists = CustomerPriceListSerializer(
+                customer_queryset,
+                many=True,
+                context={"material_cost_by_currency": material_cost_by_currency},
+            ).data
+
+        material_cost_summary = [
+            {"currency": currency, "total": _decimal(total)}
+            for currency, total in sorted(material_cost_by_currency.items())
+        ]
 
         return Response(
             {
@@ -158,7 +207,140 @@ class PricingWorkspaceView(PricingAPIView):
                 "customers": customer_options,
                 "native_sale_breaks": native_sale_breaks,
                 "vendor_lists": vendor_lists,
+                "material_costs": material_costs,
+                "material_cost_summary": material_cost_summary,
+                "material_cost_errors": material_cost_errors,
                 "currencies": sorted(CURRENCIES.keys()),
+                "endpoints": {
+                    "material_cost_collection": (
+                        f"/plugin/customer-pricing/part/{part.pk}/material-costs/"
+                    ),
+                    "material_cost_detail": (
+                        f"/plugin/customer-pricing/part/{part.pk}/material-costs/{{pk}}/"
+                    ),
+                },
+            }
+        )
+
+
+class MaterialCostCollectionView(PricingAPIView):
+    """Create a material cost row for a part."""
+
+    def post(self, request, part_id: int):
+        _require_role(request, "purchase_order", "change")
+        part = get_object_or_404(Part, pk=part_id)
+        serializer = MaterialCostEntrySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save(part=part)
+        return Response(
+            MaterialCostEntrySerializer(instance).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class MaterialCostDetailView(PricingAPIView):
+    """Update or remove a material cost row."""
+
+    def _instance(self, part_id: int, pk: int):
+        return get_object_or_404(MaterialCostEntry, pk=pk, part_id=part_id)
+
+    def patch(self, request, part_id: int, pk: int):
+        _require_role(request, "purchase_order", "change")
+        instance = self._instance(part_id, pk)
+        serializer = MaterialCostEntrySerializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        return Response(MaterialCostEntrySerializer(serializer.save()).data)
+
+    def delete(self, request, part_id: int, pk: int):
+        _require_role(request, "purchase_order", "change")
+        self._instance(part_id, pk).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MobileManifestView(PricingAPIView):
+    """Return the versioned mobile integration contract for this plugin."""
+
+    def get(self, request):
+        from .core import CustomerPricingPlugin
+
+        return Response(
+            {
+                "plugin": "customer-pricing",
+                "title": "Part Pricing",
+                "version": CustomerPricingPlugin.VERSION,
+                **CustomerPricingPlugin.mobile_app_manifest(),
+            }
+        )
+
+
+class MobileDashboardView(PricingAPIView):
+    """Return a generic authenticated summary for native mobile dashboards."""
+
+    def get(self, request):
+        can_view_sales = _has_role(request.user, "sales_order", "view")
+        can_view_purchase = _has_role(request.user, "purchase_order", "view")
+        if not (can_view_sales or can_view_purchase):
+            raise PermissionDenied("A sales-order or purchase-order role is required.")
+
+        material_count = 0
+        customer_count = 0
+        vendor_count = 0
+        part_ids = set()
+        if can_view_purchase:
+            material_count = MaterialCostEntry.objects.filter(active=True).count()
+            vendor_count = VendorPriceList.objects.filter(active=True).count()
+            part_ids.update(MaterialCostEntry.objects.values_list("part_id", flat=True))
+            part_ids.update(VendorPriceList.objects.values_list("part_id", flat=True))
+        if can_view_sales:
+            customer_count = CustomerPriceList.objects.filter(active=True).count()
+            part_ids.update(CustomerPriceList.objects.values_list("part_id", flat=True))
+
+        overview_items = [
+            {
+                "label": "Parts with pricing data",
+                "value": str(len(part_ids)),
+                "icon": "currency-dollar",
+            }
+        ]
+        if can_view_purchase:
+            overview_items.extend(
+                [
+                    {"label": "Active material entries", "value": str(material_count)},
+                    {"label": "Active vendor schedules", "value": str(vendor_count)},
+                ]
+            )
+        if can_view_sales:
+            overview_items.append(
+                {"label": "Active customer schedules", "value": str(customer_count)}
+            )
+
+        recent_items = []
+        if can_view_purchase:
+            recent_entries = MaterialCostEntry.objects.select_related("part").order_by("-updated")[
+                :8
+            ]
+            recent_items = [
+                {
+                    "label": entry.part.IPN or entry.part.name,
+                    "value": entry.name,
+                    "detail": (
+                        f"{_decimal(entry.quantity)} x {_decimal(entry.unit_cost)} {entry.currency}"
+                    ),
+                    "action": {"type": "model_detail", "model": "part", "pk": entry.part_id},
+                }
+                for entry in recent_entries
+            ]
+
+        sections = [{"title": "Overview", "items": overview_items}]
+        if recent_items:
+            sections.append({"title": "Recently updated materials", "items": recent_items})
+
+        return Response(
+            {
+                "schema_version": 1,
+                "title": "Part Pricing",
+                "description": "Material costs, customer margins, and purchasing by part",
+                "sections": sections,
             }
         )
 
