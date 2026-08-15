@@ -58,6 +58,9 @@ def test_entry_point_imports_without_registered_models(monkeypatch):
     class AppMixin:
         pass
 
+    class SettingsMixin:
+        pass
+
     class UrlsMixin:
         pass
 
@@ -66,6 +69,7 @@ def test_entry_point_imports_without_registered_models(monkeypatch):
 
     plugin_module.InvenTreePlugin = InvenTreePlugin
     plugin_mixins_module.AppMixin = AppMixin
+    plugin_mixins_module.SettingsMixin = SettingsMixin
     plugin_mixins_module.UrlsMixin = UrlsMixin
     plugin_mixins_module.UserInterfaceMixin = UserInterfaceMixin
 

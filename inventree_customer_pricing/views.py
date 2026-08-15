@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from users.permissions import check_user_role
 
+from .access import user_has_pricing_access
 from .models import (
     CustomerPriceBreak,
     CustomerPriceList,
@@ -98,10 +99,19 @@ def _material_costs_by_currency(part: Part, currencies: set[str]) -> tuple[dict,
     return totals, errors
 
 
-class PricingAPIView(APIView):
-    """Base class which relies on explicit InvenTree role checks."""
+class PricingAccessPermission(permissions.BasePermission):
+    """Require membership of the configured sensitive-pricing group."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    message = "You are not a member of the configured Part Pricing access group."
+
+    def has_permission(self, request, view):
+        return user_has_pricing_access(request.user)
+
+
+class PricingAPIView(APIView):
+    """Base class with both authentication and plugin-specific access checks."""
+
+    permission_classes = [permissions.IsAuthenticated, PricingAccessPermission]
 
 
 class PriceBreakInputSerializer(serializers.Serializer):

@@ -17,10 +17,10 @@ migrations continue to work without data remapping.
 - A separate price list for each customer, with independent quantity breaks,
   currency, notes, and active / paused state.
 - Automatic synchronization to InvenTree's native sale-price breaks.
-- Simple vendor purchasing with optional SKU, order link, lead time and quantity breaks.
+- Vendor quote comparison with optional SKU, order link, lead time and quantity breaks.
 - No native supplier, manufacturer or purchase-order setup required.
 - Manual native sale-price editing when automatic synchronization is disabled.
-- InvenTree sales-order and purchase-order role enforcement for every API action.
+- A fail-closed access-group gate plus InvenTree sales and purchase role enforcement.
 - Atomic synchronization and visible error reporting for missing currency rates.
 
 ## Native synchronization rule
@@ -57,13 +57,13 @@ reviewed before allowing a future InvenTree 1.4 release.
 In **Admin Center → Plugins → Install Plugin**, use:
 
 - Package name: `inventree-customer-pricing`
-- Source URL: `git+https://github.com/damatter/inventree-customer-pricing.git@0.4.0`
+- Source URL: `git+https://github.com/damatter/inventree-customer-pricing.git@0.5.0`
 - Version: leave blank (the release is pinned in the source URL)
 
 The equivalent `plugins.txt` entry is:
 
 ```text
-inventree-customer-pricing @ git+https://github.com/damatter/inventree-customer-pricing.git@0.4.0
+inventree-customer-pricing @ git+https://github.com/damatter/inventree-customer-pricing.git@0.5.0
 ```
 
 Then:
@@ -72,7 +72,8 @@ Then:
    integrations are enabled in InvenTree's plugin settings.
 2. Restart the InvenTree web server and background worker.
 3. Activate **Part Pricing** in Admin Center.
-4. Run the normal InvenTree update / migration step for your installation and restart once more.
+4. In the plugin settings, select the small InvenTree group allowed to access sensitive pricing.
+5. Run the normal InvenTree update / migration step for your installation and restart once more.
 
 Container installations should also enable **Check Plugins on Startup** so the Git
 installation survives container replacement.
@@ -123,11 +124,16 @@ docker compose up -d
 ```
 ## Permissions
 
+- The plugin's **Pricing access group** is the outer security boundary. If it is not
+  configured, access fails closed and only superusers can discover or call Part Pricing.
+- A non-superuser must be a member of that group *and* have the applicable InvenTree role.
 - Sales-order `view` is required to see customer and sale pricing.
 - Sales-order `change` is required to edit customer pricing, native sale pricing,
   or synchronization settings.
 - Purchase-order `view` / `change` controls the simple purchasing section.
 - Superusers retain full access.
+
+See [SECURITY.md](SECURITY.md) for the code-level exposure review and deployment checklist.
 
 ## Development
 

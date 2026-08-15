@@ -206,7 +206,7 @@ function formatMoney(value: string | null, currency: string, locale: string): st
       style: 'currency',
       currency,
       minimumFractionDigits: 2,
-      maximumFractionDigits: 6
+      maximumFractionDigits: 2
     }).format(Number(value));
   } catch {
     return `${currency} ${value}`;
@@ -214,7 +214,7 @@ function formatMoney(value: string | null, currency: string, locale: string): st
 }
 
 function formatQuantity(value: string): string {
-  return Number(value).toLocaleString(undefined, { maximumFractionDigits: 5 });
+  return Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
@@ -307,7 +307,7 @@ function BreakTable({
                   <Table.Td>
                     {customerRecord.profit_margin_percent === null
                       ? '\u2014'
-                      : `${Number(customerRecord.profit_margin_percent).toFixed(1)}%`}
+                      : `${Number(customerRecord.profit_margin_percent).toFixed(2)}%`}
                   </Table.Td>
                 )}
                 {editable && (
@@ -349,6 +349,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
   const [materialEditor, setMaterialEditor] = useState<MaterialEditorState | null>(null);
   const [breakEditor, setBreakEditor] = useState<BreakEditorState | null>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
+  const [purchaseQuantity, setPurchaseQuantity] = useState<string | number>(1);
 
   const loadWorkspace = useCallback(async () => {
     if (!Number.isFinite(partId)) {
@@ -419,6 +420,61 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
       )?.total ?? null
     );
   }, [data]);
+
+  const headlineSchedule = useMemo(
+    () =>
+      data?.customer_lists.find(
+        (priceList) => priceList.active && priceList.base_selling_price !== null
+      ) ?? null,
+    [data]
+  );
+
+  const purchaseQuotes = useMemo(() => {
+    if (!data) {
+      return [];
+    }
+
+    const requestedQuantity = Math.max(Number(purchaseQuantity) || 0, 0);
+    const quotes = data.vendor_lists
+      .filter((vendor) => vendor.active)
+      .map((vendor) => {
+        const priceBreak = [...vendor.breaks]
+          .filter((entry) => Number(entry.quantity) <= requestedQuantity && entry.price !== null)
+          .sort((left, right) => Number(right.quantity) - Number(left.quantity))[0];
+
+        if (!priceBreak) {
+          return null;
+        }
+
+        return {
+          vendor,
+          priceBreak,
+          extendedPrice: String(Number(priceBreak.price) * requestedQuantity)
+        };
+      })
+      .filter((quote): quote is NonNullable<typeof quote> => quote !== null);
+
+    const bestByCurrency = new Map<string, number>();
+    quotes.forEach(({ priceBreak }) => {
+      const price = Number(priceBreak.price);
+      const current = bestByCurrency.get(priceBreak.currency);
+      if (current === undefined || price < current) {
+        bestByCurrency.set(priceBreak.currency, price);
+      }
+    });
+
+    return quotes
+      .map((quote) => ({
+        ...quote,
+        best: Number(quote.priceBreak.price) === bestByCurrency.get(quote.priceBreak.currency)
+      }))
+      .sort((left, right) => {
+        if (left.priceBreak.currency !== right.priceBreak.currency) {
+          return left.priceBreak.currency.localeCompare(right.priceBreak.currency);
+        }
+        return Number(left.priceBreak.price) - Number(right.priceBreak.price);
+      });
+  }, [data, purchaseQuantity]);
 
   const availableCustomers = useMemo(() => {
     if (!data) {
@@ -744,7 +800,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
           color: 'white'
         }}
       >
-        <Group justify="space-between" align="flex-start">
+        <Group justify="space-between" align="flex-start" wrap="wrap">
           <Stack gap={3}>
             <Text size="xs" fw={700} tt="uppercase" opacity={0.8}>
               Pricing workspace
@@ -758,6 +814,56 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
             {data.policy.sync_native_sale ? 'Native sync active' : 'Manual sale pricing'}
           </Badge>
         </Group>
+
+        <SimpleGrid cols={{ base: 1, sm: 3 }} mt="lg">
+          {[
+            {
+              label: 'Material cost',
+              value: formatMoney(
+                headlineSchedule?.material_cost ?? resolvedMaterialTotal,
+                headlineSchedule?.currency ?? data.policy.resolved_currency,
+                context.locale
+              ),
+              detail: `${data.material_costs.filter((entry) => entry.active).length} active entries`
+            },
+            {
+              label: 'Gross profit',
+              value: formatMoney(
+                headlineSchedule?.profit_amount ?? null,
+                headlineSchedule?.currency ?? data.policy.resolved_currency,
+                context.locale
+              ),
+              detail: headlineSchedule?.customer_name ?? 'Add a customer selling price'
+            },
+            {
+              label: 'Profit margin',
+              value:
+                headlineSchedule?.profit_margin_percent === null || !headlineSchedule
+                  ? '\u2014'
+                  : `${Number(headlineSchedule.profit_margin_percent).toFixed(2)}%`,
+              detail: headlineSchedule
+                ? `${headlineSchedule.customer_name} base tier`
+                : 'Calculated from selling price and materials'
+            }
+          ].map((metric) => (
+            <Paper
+              key={metric.label}
+              radius="md"
+              p="sm"
+              style={{ background: 'rgba(255, 255, 255, 0.14)', color: 'white' }}
+            >
+              <Text size="xs" fw={700} tt="uppercase" opacity={0.8}>
+                {metric.label}
+              </Text>
+              <Text size="xl" fw={750} truncate>
+                {metric.value}
+              </Text>
+              <Text size="xs" opacity={0.85} truncate>
+                {metric.detail}
+              </Text>
+            </Paper>
+          ))}
+        </SimpleGrid>
       </Paper>
 
       {(data.permissions.view_sales || data.permissions.view_purchase) && (
@@ -934,7 +1040,7 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
                                   }
                                   variant="light"
                                 >
-                                  {Number(priceList.profit_margin_percent).toFixed(1)}% margin
+                                  {Number(priceList.profit_margin_percent).toFixed(2)}% margin
                                 </Badge>
                               )}
                             </Group>
@@ -1004,6 +1110,37 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
         {data.permissions.view_sales && (
           <Tabs.Panel value="sale" pt="lg">
             <Stack gap="md">
+              <Alert color="blue" title="Used everywhere InvenTree reads sale pricing">
+                The synchronized tiers below become this part's native sale-price breaks. Customer
+                schedules stay as the source of truth, while quotes and other InvenTree workflows
+                can use the native result.
+              </Alert>
+
+              <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                <MetricCard
+                  label="Base native sale price"
+                  value={formatMoney(
+                    data.native_sale_breaks[0]?.price ?? null,
+                    data.native_sale_breaks[0]?.currency || data.policy.resolved_currency,
+                    context.locale
+                  )}
+                  detail={
+                    data.native_sale_breaks[0]
+                      ? `Applies from quantity ${formatQuantity(data.native_sale_breaks[0].quantity)}`
+                      : 'No native sale tier is available yet'
+                  }
+                />
+                <MetricCard
+                  label="Sale coverage"
+                  value={`${data.native_sale_breaks.length} tier${data.native_sale_breaks.length === 1 ? '' : 's'}`}
+                  detail={
+                    data.policy.sync_native_sale
+                      ? 'Maintained automatically from customer schedules'
+                      : 'Maintained manually in this tab'
+                  }
+                />
+              </SimpleGrid>
+
               <Card withBorder radius="md" padding="lg">
                 <Stack gap="md">
                   <Group justify="space-between" align="flex-start">
@@ -1113,12 +1250,85 @@ function CustomerPricingPanel({ context }: { context: PricingPluginContext }) {
         {data.permissions.view_purchase && (
           <Tabs.Panel value="purchase" pt="lg">
             <Stack gap="md">
+              <Card withBorder radius="md" padding="lg">
+                <Stack gap="md">
+                  <Group justify="space-between" align="flex-end" wrap="wrap">
+                    <Stack gap={2}>
+                      <Text fw={700}>Compare vendor quotes</Text>
+                      <Text size="sm" c="dimmed">
+                        Enter the quantity you need. The applicable tier and extended price are
+                        selected automatically for every active vendor.
+                      </Text>
+                    </Stack>
+                    <NumberInput
+                      label="Required quantity"
+                      value={purchaseQuantity}
+                      min={0.01}
+                      decimalScale={2}
+                      w={180}
+                      onChange={setPurchaseQuantity}
+                    />
+                  </Group>
+
+                  {purchaseQuotes.length === 0 ? (
+                    <Text size="sm" c="dimmed">
+                      No active vendor has a price break that applies to this quantity.
+                    </Text>
+                  ) : (
+                    <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
+                      {purchaseQuotes.map(({ vendor, priceBreak, extendedPrice, best }) => (
+                        <Paper
+                          key={vendor.pk}
+                          withBorder
+                          radius="md"
+                          p="md"
+                          style={
+                            best
+                              ? { borderColor: 'var(--mantine-color-teal-6)', borderWidth: 2 }
+                              : undefined
+                          }
+                        >
+                          <Group justify="space-between" wrap="nowrap">
+                            <Text fw={750} truncate>
+                              {vendor.vendor_name}
+                            </Text>
+                            {best && <Badge color="teal">Best {vendor.currency}</Badge>}
+                          </Group>
+                          <Text size="xl" fw={750} mt="xs">
+                            {formatMoney(priceBreak.price, vendor.currency, context.locale)} / unit
+                          </Text>
+                          <Text size="sm" c="dimmed">
+                            {formatMoney(extendedPrice, vendor.currency, context.locale)} total
+                            {vendor.lead_time_days !== null
+                              ? ` \u00b7 ${vendor.lead_time_days} day lead time`
+                              : ''}
+                          </Text>
+                          {vendor.purchase_url && (
+                            <Button
+                              component="a"
+                              href={vendor.purchase_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              size="xs"
+                              variant="light"
+                              mt="sm"
+                            >
+                              Open vendor page
+                            </Button>
+                          )}
+                        </Paper>
+                      ))}
+                    </SimpleGrid>
+                  )}
+                </Stack>
+              </Card>
+
               <Group justify="space-between" align="flex-start">
                 <Stack gap={2}>
-                  <Text fw={700}>Simple purchasing</Text>
+                  <Text fw={700}>Vendor price book</Text>
                   <Text size="sm" c="dimmed">
-                    Track vendor options and price breaks without creating suppliers, SKUs or
-                    purchase orders.
+                    Maintain lightweight quote options here without creating supplier parts or
+                    purchase orders. The comparison above turns the tiers into a buying decision.
                   </Text>
                 </Stack>
                 {data.permissions.change_purchase && (
