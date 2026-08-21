@@ -17,6 +17,7 @@ migrations continue to work without data remapping.
 - A separate price list for each customer, with independent quantity breaks,
   currency, notes, and active / paused state.
 - Automatic synchronization to InvenTree's native sale-price breaks.
+- A batch reporting interface for material value and customer sale-price ranges.
 - A fail-closed access-group gate plus InvenTree sales and purchase role enforcement.
 - Atomic synchronization and visible error reporting for missing currency rates.
 
@@ -54,13 +55,13 @@ reviewed before allowing a future InvenTree 1.4 release.
 In **Admin Center → Plugins → Install Plugin**, use:
 
 - Package name: `inventree-customer-pricing`
-- Source URL: `git+https://github.com/damatter/inventree-customer-pricing.git@0.6.0`
+- Source URL: `git+https://github.com/damatter/inventree-customer-pricing.git@0.6.1`
 - Version: leave blank (the release is pinned in the source URL)
 
 The equivalent `plugins.txt` entry is:
 
 ```text
-inventree-customer-pricing @ git+https://github.com/damatter/inventree-customer-pricing.git@0.6.0
+inventree-customer-pricing @ git+https://github.com/damatter/inventree-customer-pricing.git@0.6.1
 ```
 
 Then:
@@ -86,6 +87,35 @@ Customer pricing is always authoritative. Every customer-list or quantity-break
 change atomically replaces InvenTree's native sale-price rows with the
 highest-price customer envelope.
 
+## Reporting interface
+
+Other installed InvenTree plugins can request consistent pricing values for many
+parts at once:
+
+```python
+from inventree_customer_pricing.reporting import reporting_values_for_parts
+
+values = reporting_values_for_parts(part_ids, target_currency="CAD")
+part_value = values[part_id]
+```
+
+The function performs one batched material query and one batched sale-price query,
+regardless of the number of part identifiers. If `target_currency` is omitted, it
+uses InvenTree's default currency. Each `PartReportingValues` result contains:
+
+- `unit_material_cost`: the sum of `quantity * unit_cost` for all active material
+  entries belonging to the part.
+- `lowest_sale_price` and `highest_sale_price`: the lowest and highest per-unit
+  break prices across all active customer price lists.
+- `currency`: the single currency used by all three monetary values.
+- `error`: a readable explanation when material or sale data is missing or cannot
+  be converted.
+
+Missing data is returned as `None`. If any required currency conversion fails, the
+entire affected total or price range is returned as `None`; the interface never
+publishes a partial total that could look complete. Use `reporting_values_as_dict`
+when a consumer needs ordinary dictionaries instead of immutable dataclasses.
+
 ## Data storage
 
 Material entries and customer schedules are stored in plugin-owned tables in the
@@ -94,7 +124,8 @@ customer-price envelope to InvenTree's native sale-price rows. Margin values are
 derived from stored material and selling prices, so duplicated calculated values
 cannot become stale.
 
-Version 0.6.0 removes sale-price editing and vendor purchasing from the plugin
+Version 0.6.1 adds the public batch reporting interface described above. Version
+0.6.0 removed sale-price editing and vendor purchasing from the plugin
 interface and public URL map. Existing vendor rows and migration history are
 deliberately retained in the database so upgrades, backups, restores, and rollback
 remain lossless; the plugin simply stops exposing those archived records.
