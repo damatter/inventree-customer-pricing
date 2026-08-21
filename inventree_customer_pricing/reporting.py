@@ -32,6 +32,29 @@ class PartReportingValues:
 CurrencyConverter = Callable[[Decimal, str, str], Decimal]
 
 
+def user_can_view_reporting_values(user: object) -> bool:
+    """Apply the plugin access group and both read roles to report exports.
+
+    Reporting values combine purchasing material costs with customer sale
+    prices, so a user-facing consumer must require access to both datasets.
+    Scheduled server-side jobs do not carry an interactive user and remain an
+    administrator-controlled responsibility of the consuming plugin.
+    """
+
+    from users.permissions import check_user_role
+
+    from .access import user_has_pricing_access
+
+    if not user_has_pricing_access(user):
+        return False
+    if getattr(user, "is_superuser", False):
+        return True
+    return bool(
+        check_user_role(user, "purchase_order", "view")
+        and check_user_role(user, "sales_order", "view")
+    )
+
+
 def _normalized_part_ids(part_ids: Iterable[int]) -> tuple[int, ...]:
     """Return unique integer part identifiers while retaining input order."""
 

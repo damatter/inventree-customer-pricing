@@ -1,8 +1,10 @@
 """Tests for the public batch reporting interface."""
 
 import ast
+import sys
 from decimal import Decimal
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -12,6 +14,7 @@ from inventree_customer_pricing.reporting import (
     aggregate_reporting_values,
     reporting_values_as_dict,
     reporting_values_for_parts,
+    user_can_view_reporting_values,
 )
 
 
@@ -227,3 +230,41 @@ def test_plain_dictionary_adapter_preserves_decimal_values():
             "error": None,
         }
     }
+
+
+def test_reporting_access_requires_group_and_both_read_roles(monkeypatch):
+    import inventree_customer_pricing.access as access
+
+    monkeypatch.setattr(access, "user_has_pricing_access", lambda user: True)
+    permissions = ModuleType("users.permissions")
+    roles = {"purchase_order": True, "sales_order": True}
+    permissions.check_user_role = lambda user, role, action: (
+        action == "view" and roles[role]
+    )
+    users = ModuleType("users")
+    users.__path__ = []
+    users.permissions = permissions
+    monkeypatch.setitem(sys.modules, "users", users)
+    monkeypatch.setitem(sys.modules, "users.permissions", permissions)
+    user = SimpleNamespace(is_superuser=False)
+
+    assert user_can_view_reporting_values(user)
+    roles["sales_order"] = False
+    assert not user_can_view_reporting_values(user)
+
+
+def test_reporting_access_fails_before_role_checks_without_group(monkeypatch):
+    import inventree_customer_pricing.access as access
+
+    monkeypatch.setattr(access, "user_has_pricing_access", lambda user: False)
+    permissions = ModuleType("users.permissions")
+    permissions.check_user_role = lambda *args: pytest.fail(
+        "roles should not be checked before the access group"
+    )
+    users = ModuleType("users")
+    users.__path__ = []
+    users.permissions = permissions
+    monkeypatch.setitem(sys.modules, "users", users)
+    monkeypatch.setitem(sys.modules, "users.permissions", permissions)
+
+    assert not user_can_view_reporting_values(SimpleNamespace(is_superuser=False))

@@ -116,6 +116,12 @@ entire affected total or price range is returned as `None`; the interface never
 publishes a partial total that could look complete. Use `reporting_values_as_dict`
 when a consumer needs ordinary dictionaries instead of immutable dataclasses.
 
+Any user-facing consumer must also call `user_can_view_reporting_values(user)`
+before exposing these fields. It applies the configured Part Pricing access
+group and requires both purchase-order and sales-order view roles, because the
+combined snapshot contains sensitive information from both datasets. Scheduled
+server-side exports remain the consuming administrator's responsibility.
+
 ## Data storage
 
 Material entries and customer schedules are stored in plugin-owned tables in the
